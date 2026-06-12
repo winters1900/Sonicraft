@@ -1,0 +1,17 @@
+{
+  "name": "voice-draw",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI 语音绘图工具 — 纯语音控制的 Canvas 绘图应用（七牛云暑期赛）",
+  "scripts": {
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build": "npm --prefix frontend run build && npm --prefix backend run build",
+    "test": "npm --prefix frontend run test --silent",
+    "install:all": "npm install && npm --prefix frontend install && npm --prefix backend install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
