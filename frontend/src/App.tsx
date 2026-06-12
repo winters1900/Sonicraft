@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useCanvasEngine } from './engine/useCanvasEngine';
 import { DebugToolbar } from './components/DebugToolbar';
+import { CommandConsole } from './components/CommandConsole';
 
 // PR-1：挂载 Canvas 绘图引擎，并提供调试工具栏验证渲染/历史/变换。
 // 语音控制与指令解析将在后续 PR 接入。
@@ -31,6 +32,9 @@ export default function App() {
         <div className="canvas-wrap">
           <canvas ref={canvasRef} width={960} height={600} />
         </div>
+        <aside className="app__side">
+          <CommandConsole engine={engine.current} />
+        </aside>
       </div>
     </div>
   );

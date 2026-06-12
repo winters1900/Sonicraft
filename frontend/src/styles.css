@@ -104,3 +104,100 @@ canvas {
   border-radius: 6px;
   box-shadow: 0 4px 24px #0008;
 }
+
+.app__side {
+  width: 340px;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.console {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 14px;
+  gap: 10px;
+  min-height: 0;
+}
+
+.console__input {
+  display: flex;
+  gap: 6px;
+}
+
+.console__input input {
+  flex: 1;
+  background: #0f1117;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.console__input input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.console__input button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.console__samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.console__samples button {
+  background: #0f1117;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.console__samples button:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.console__log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.console__hint {
+  color: var(--muted);
+  font-size: 12px;
+  padding-top: 8px;
+}
+
+.console__entry {
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+}
+
+.console__cmd {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.console__ok { color: #5cd28a; font-size: 12px; }
+.console__fail { color: #ff7a7a; font-size: 12px; }
