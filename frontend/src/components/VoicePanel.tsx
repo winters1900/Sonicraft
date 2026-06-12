@@ -4,6 +4,8 @@ import type { EngineKind } from '../voice/types';
 interface Props {
   run: (text: string, via?: 'text' | 'voice') => Promise<string>;
   qiniuConfigured: boolean;
+  ttsEnabled: boolean;
+  onToggleTts: () => void;
 }
 
 const ENGINE_LABEL: Record<EngineKind, string> = {
@@ -12,7 +14,7 @@ const ENGINE_LABEL: Record<EngineKind, string> = {
 };
 
 // 语音输入面板：麦克风开关、实时字幕、识别引擎切换。语音是本工具的主交互方式。
-export function VoicePanel({ run, qiniuConfigured }: Props) {
+export function VoicePanel({ run, qiniuConfigured, ttsEnabled, onToggleTts }: Props) {
   const voice = useVoice({ qiniuConfigured, onFinal: (t) => void run(t, 'voice') });
 
   return (
@@ -37,6 +39,13 @@ export function VoicePanel({ run, qiniuConfigured }: Props) {
             {ENGINE_LABEL[k]}
           </button>
         ))}
+        <button
+          className={`voice__tts ${ttsEnabled ? 'is-active' : ''}`}
+          onClick={onToggleTts}
+          title="语音反馈开关"
+        >
+          {ttsEnabled ? '🔊 反馈' : '🔇 反馈'}
+        </button>
       </div>
 
       <div className="voice__transcript">

@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useCanvasEngine } from './engine/useCanvasEngine';
 import { useDrawController } from './controller/useDrawController';
+import { useSpeech } from './voice/useSpeech';
 import { DebugToolbar } from './components/DebugToolbar';
 import { CommandConsole } from './components/CommandConsole';
 import { VoicePanel } from './components/VoicePanel';
 
-// PR-6：语音(七牛 ASR / 浏览器) → 混合解析 → 绘图执行 的完整链路。
+// PR-7：语音(七牛 ASR / 浏览器) → 混合解析 → 绘图执行 → 语音反馈(TTS) 的完整闭环。
 export default function App() {
   const { canvasRef, engine, state } = useCanvasEngine(960, 600);
-  const { run, log, busy } = useDrawController(engine.current);
   const [health, setHealth] = useState<{ ok: boolean; qiniuConfigured: boolean } | null>(null);
+  const speech = useSpeech(health?.qiniuConfigured ?? false);
+  const { run, log, busy } = useDrawController(engine.current, speech.speakFeedback);
 
   useEffect(() => {
     fetch('/api/health')
@@ -36,7 +38,12 @@ export default function App() {
           <canvas ref={canvasRef} width={960} height={600} />
         </div>
         <aside className="app__side">
-          <VoicePanel run={run} qiniuConfigured={health?.qiniuConfigured ?? false} />
+          <VoicePanel
+            run={run}
+            qiniuConfigured={health?.qiniuConfigured ?? false}
+            ttsEnabled={speech.enabled}
+            onToggleTts={speech.toggle}
+          />
           <CommandConsole run={run} log={log} busy={busy} />
         </aside>
       </div>

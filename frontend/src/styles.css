@@ -189,6 +189,11 @@ canvas {
   background: #1c2433;
 }
 
+.voice__tts.is-active {
+  color: #5cd28a;
+  border-color: #5cd28a55;
+}
+
 .voice__transcript {
   min-height: 20px;
   font-size: 13px;

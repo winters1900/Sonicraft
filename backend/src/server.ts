@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { parseRouter } from './routes/parse.js';
 import { asrRouter } from './routes/asr.js';
+import { ttsRouter } from './routes/tts.js';
 
 dotenv.config();
 
@@ -14,6 +15,7 @@ const PORT = Number(process.env.PORT ?? 8787);
 
 app.use('/api', parseRouter);
 app.use('/api', asrRouter);
+app.use('/api', ttsRouter);
 
 // 健康检查：前端用它判断后端是否在线，并提示是否已配置七牛密钥。
 app.get('/api/health', (_req, res) => {
