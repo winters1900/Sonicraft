@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CanvasEngine } from '../engine/CanvasEngine';
 import { __resetIdSeq } from '../engine/shapes';
 import { CommandExecutor } from './CommandExecutor';
@@ -24,6 +24,26 @@ function setup() {
 }
 
 beforeEach(() => __resetIdSeq());
+
+function stubDocument() {
+  const click = vi.fn();
+  const link = {
+    href: '',
+    download: '',
+    rel: '',
+    click,
+    remove: vi.fn(),
+  } as unknown as HTMLAnchorElement;
+  vi.stubGlobal('document', {
+    createElement: vi.fn(() => link),
+    body: { appendChild: vi.fn(() => link) },
+  });
+  return { click };
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('create', () => {
   it('画一个红色圆形：补全默认尺寸并解析颜色', () => {
@@ -144,5 +164,23 @@ describe('全局命令与容错', () => {
     exec.execute({ op: 'create', shape: 'circle' });
     const r = exec.execute({ op: 'recolor', color: '马卡龙紫罗兰' });
     expect(r.ok).toBe(false);
+  });
+
+  it('空画布导出失败', () => {
+    const { exec } = setup();
+    const r = exec.execute({ op: 'export' });
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('空的');
+  });
+
+  it('有图形时导出成功', () => {
+    const { exec } = setup();
+    exec.execute({ op: 'create', shape: 'circle' });
+    const { click } = stubDocument();
+
+    const r = exec.execute({ op: 'export' });
+    expect(r.ok).toBe(true);
+    expect(r.message).toContain('PNG');
+    expect(click).toHaveBeenCalledOnce();
   });
 });

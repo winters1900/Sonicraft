@@ -1,4 +1,5 @@
 import type { CanvasEngine } from '../engine/CanvasEngine';
+import { exportCanvasPng } from '../engine/exportPng';
 import type { ShapeType } from '../engine/shapes';
 
 // 仅用于开发期手动验证绘图引擎；正式语音链路接入后会从主界面移除。
@@ -32,6 +33,7 @@ export function DebugToolbar({ engine }: { engine: CanvasEngine | null }) {
       <button onClick={() => engine.undo()}>撤销</button>
       <button onClick={() => engine.redo()}>重做</button>
       <button onClick={() => engine.clear()}>清空</button>
+      <button onClick={() => exportCanvasPng(engine)}>导出 PNG</button>
     </div>
   );
 }

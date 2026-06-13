@@ -11,6 +11,7 @@ import {
   type SelectTarget,
 } from '@shared/commands';
 import { CanvasEngine } from '../engine/CanvasEngine';
+import { exportCanvasPng } from '../engine/exportPng';
 import { SHAPE_DEFAULTS, type Shape, type ShapeType } from '../engine/shapes';
 
 export interface ExecOutcome {
@@ -55,7 +56,10 @@ export class CommandExecutor {
         this.engine.clear();
         return { ok: true, message: '已清空画布', command: cmd };
       case 'export':
-        return { ok: true, message: '已导出当前画布', command: cmd };
+        if (!exportCanvasPng(this.engine)) {
+          return { ok: false, message: '画布还是空的，先画点东西再导出吧', command: cmd };
+        }
+        return { ok: true, message: '已保存 PNG 图片', command: cmd };
       case 'unknown':
         return { ok: false, message: '没太听清，可以换种说法再说一次，比如「画一个红色的圆」', command: cmd };
     }

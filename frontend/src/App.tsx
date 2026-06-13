@@ -6,6 +6,7 @@ import { DebugToolbar } from './components/DebugToolbar';
 import { CommandConsole } from './components/CommandConsole';
 import { VoicePanel } from './components/VoicePanel';
 import { HelpOverlay } from './components/HelpOverlay';
+import { exportCanvasPng } from './engine/exportPng';
 
 // 完整闭环：语音(七牛 ASR / 浏览器) → 混合解析 → 绘图执行 → 语音反馈(TTS)。
 export default function App() {
@@ -32,6 +33,18 @@ export default function App() {
         </span>
         <div className="app__header-right">
           <span className="app__status">图形 {state.shapes.length} · 选中 {state.selectedIds.length}</span>
+          <button
+            className="app__export-btn"
+            disabled={state.shapes.length === 0}
+            title={state.shapes.length === 0 ? '画布为空，无法导出' : '导出当前画布为 PNG'}
+            onClick={() => {
+              if (engine.current && exportCanvasPng(engine.current)) {
+                speech.speakFeedback('已保存 PNG 图片');
+              }
+            }}
+          >
+            导出 PNG
+          </button>
           <button className="app__help-btn" onClick={() => setShowHelp(true)}>❓ 指令帮助</button>
         </div>
       </header>
