@@ -13,7 +13,6 @@
 - **指令理解**：本地规则解析几何、布局、样式、变换、撤销等高频命令；未知但有绘图意图的对象转为 `imagine`。
 - **任意物体绘图**：后端代理 Hugging Face 文生图，默认 `black-forest-labs/FLUX.1-schnell`，生成图片图元落到画布。
 - **TTS**：浏览器原生 `SpeechSynthesis`，播报期间有 TTS gate 抑制回声。
-- **无七牛依赖**：已移除七牛 ASR、LLM、TTS、Kodo 配置与运行路径。
 
 ## 快速启动
 
