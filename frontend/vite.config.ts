@@ -6,6 +6,9 @@ import { fileURLToPath, URL } from 'node:url';
 // 前端开发服务器；/api 与 /ws 代理到后端（默认 8787）。
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __BUNDLED_DEV__: false,
+  },
   resolve: {
     alias: {
       '@shared': fileURLToPath(new URL('../shared', import.meta.url)),

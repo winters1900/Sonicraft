@@ -255,6 +255,18 @@ describe('全局命令与容错', () => {
     const r = exec.execute({ op: 'recolor', color: '马卡龙紫罗兰' });
     expect(r.ok).toBe(false);
   });
+
+  it('多命令事务中途失败会回滚并标出失败步骤', () => {
+    const { engine, exec } = setup();
+    const results = exec.executeAll([
+      { op: 'create', shape: 'circle' },
+      { op: 'recolor', color: '马卡龙紫罗兰' },
+    ]);
+    expect(results).toHaveLength(2);
+    expect(results[1].ok).toBe(false);
+    expect(results[1].message).toContain('第 2 步失败');
+    expect(engine.getState().shapes).toHaveLength(0);
+  });
 });
 
 describe('isValidCommand 校验', () => {
@@ -266,6 +278,14 @@ describe('isValidCommand 校验', () => {
   it('拒绝未知预设与未知形状', () => {
     expect(isValidCommand({ op: 'compose', preset: 'dragon' })).toBe(false);
     expect(isValidCommand({ op: 'create', shape: 'blob' })).toBe(false);
+  });
+  it('拒绝越界数量、非法布局、非法选择目标和非法变换数值', () => {
+    expect(isValidCommand({ op: 'create', shape: 'circle', count: 999 })).toBe(false);
+    expect(isValidCommand({ op: 'create', shape: 'circle', layout: 'spiral' })).toBe(false);
+    expect(isValidCommand({ op: 'select', target: { kind: 'byType', shape: 'blob' } })).toBe(false);
+    expect(isValidCommand({ op: 'move', direction: 'north' })).toBe(false);
+    expect(isValidCommand({ op: 'scale', factor: -1 })).toBe(false);
+    expect(isValidCommand({ op: 'rotate', deg: Number.NaN })).toBe(false);
   });
 });
 

@@ -15,6 +15,7 @@ import {
 import { CanvasEngine } from '../engine/CanvasEngine';
 import { nextGroupId, SHAPE_DEFAULTS, type Shape, type ShapeType } from '../engine/shapes';
 import { PRESETS } from './presets';
+import { autoPlace, positionToXY } from './placement';
 
 export interface ExecOutcome {
   ok: boolean;
@@ -29,7 +30,19 @@ export class CommandExecutor {
   constructor(private engine: CanvasEngine) {}
 
   executeAll(cmds: DrawCommand[]): ExecOutcome[] {
-    return cmds.map((c) => this.execute(c));
+    if (cmds.length <= 1) return cmds.map((c) => this.execute(c));
+    const before = this.engine.getState();
+    const outcomes: ExecOutcome[] = [];
+    for (let i = 0; i < cmds.length; i++) {
+      const outcome = this.execute(cmds[i]);
+      if (!outcome.ok) {
+        this.engine.replaceState(before);
+        outcomes.push({ ...outcome, message: `第 ${i + 1} 步失败：${outcome.message}` });
+        return outcomes;
+      }
+      outcomes.push(outcome);
+    }
+    return outcomes;
   }
 
   execute(cmd: DrawCommand): ExecOutcome {
@@ -38,6 +51,9 @@ export class CommandExecutor {
         return this.create(cmd);
       case 'compose':
         return this.compose(cmd);
+      case 'imagine':
+        // AI 文生图为异步流程，由 useDrawController 处理；执行器不直接落地。
+        return { ok: false, message: '图片生成由控制器处理', command: cmd };
       case 'select':
         return this.select(cmd.target);
       case 'move':
@@ -72,7 +88,8 @@ export class CommandExecutor {
     const props = cmd.props ?? {};
     const color = resolveColor(props.color);
     const scale = props.sizeScale ?? 1;
-    const positions = this.layoutPositions(count, cmd.layout ?? 'row', props.position);
+    const center = this.resolveCenter(props.position, count === 1);
+    const positions = this.layoutPositions(count, cmd.layout ?? 'row', center);
 
     const specs = positions.map((pos) => ({
       type: cmd.shape as ShapeType,
@@ -109,7 +126,7 @@ export class CommandExecutor {
     if (typeof document !== 'undefined') {
       const a = document.createElement('a');
       a.href = url;
-      a.download = `voice-draw-${Date.now()}.png`;
+      a.download = `sonicraft-${Date.now()}.png`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -128,7 +145,7 @@ export class CommandExecutor {
       };
     }
     const props = cmd.props ?? {};
-    const { x, y } = this.positionToXY(props.position, this.engine.width, this.engine.height);
+    const { x, y } = this.resolveCenter(props.position, true);
     const color = resolveColor(props.color) ?? '';
     // 同组图元共享 groupId + groupKind，使其可作为整体重选与变换（绕组中心缩放不散开）。
     const groupId = nextGroupId();
@@ -186,11 +203,19 @@ export class CommandExecutor {
     return p;
   }
 
-  /** 计算 count 个图形的中心坐标，支持 row/col/grid 与整组方位。 */
-  private layoutPositions(count: number, layout: 'row' | 'col' | 'grid', pos?: PositionHint) {
+  /** 解析落点：给了方位用方位；否则单个图形走防重叠自动选点，多个走画布中心。 */
+  private resolveCenter(pos: PositionHint | undefined, single: boolean): { x: number; y: number } {
     const W = this.engine.width;
     const H = this.engine.height;
-    const center = this.positionToXY(pos, W, H);
+    if (pos) return positionToXY(pos, W, H);
+    if (single) return autoPlace(this.engine.getState().shapes, W, H);
+    return positionToXY(undefined, W, H);
+  }
+
+  /** 计算 count 个图形的中心坐标，支持 row/col/grid（围绕给定 center 排布）。 */
+  private layoutPositions(count: number, layout: 'row' | 'col' | 'grid', center: { x: number; y: number }) {
+    const W = this.engine.width;
+    const H = this.engine.height;
     if (count === 1) return [center];
 
     const gap = Math.min(180, (W * 0.8) / count);
@@ -213,23 +238,6 @@ export class CommandExecutor {
       }
     }
     return out;
-  }
-
-  private positionToXY(pos: PositionHint | undefined, W: number, H: number) {
-    const fx = { left: 0.25, right: 0.75, center: 0.5 };
-    const fy = { top: 0.25, bottom: 0.75, center: 0.5 };
-    let x = 0.5, y = 0.5;
-    switch (pos) {
-      case 'top': y = fy.top; break;
-      case 'bottom': y = fy.bottom; break;
-      case 'left': x = fx.left; break;
-      case 'right': x = fx.right; break;
-      case 'top-left': x = fx.left; y = fy.top; break;
-      case 'top-right': x = fx.right; y = fy.top; break;
-      case 'bottom-left': x = fx.left; y = fy.bottom; break;
-      case 'bottom-right': x = fx.right; y = fy.bottom; break;
-    }
-    return { x: W * x, y: H * y };
   }
 
   private layoutLabel(layout: 'row' | 'col' | 'grid'): string {

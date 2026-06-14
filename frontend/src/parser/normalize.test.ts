@@ -24,14 +24,22 @@ describe('输入归一化（容错）', () => {
 
 describe('语音元控制口令', () => {
   it('识别停止类口令', () => {
-    expect(matchVoiceControl('停止聆听')).toBe('stop');
-    expect(matchVoiceControl('暂停识别')).toBe('stop');
-    expect(matchVoiceControl('别听了')).toBe('stop');
-    expect(matchVoiceControl('结束聆听')).toBe('stop');
+    expect(matchVoiceControl('停止聆听')).toEqual({ type: 'stop' });
+    expect(matchVoiceControl('暂停识别')).toEqual({ type: 'stop' });
+    expect(matchVoiceControl('别听了')).toEqual({ type: 'stop' });
+    expect(matchVoiceControl('结束聆听')).toEqual({ type: 'stop' });
   });
 
   it('普通绘图指令不误判为控制', () => {
     expect(matchVoiceControl('画一个圆')).toBeNull();
     expect(matchVoiceControl('停在右边')).toBeNull();
+  });
+
+  it('识别应用级语音控制', () => {
+    expect(matchVoiceControl('开始聆听')).toEqual({ type: 'start' });
+    expect(matchVoiceControl('打开帮助')).toEqual({ type: 'helpOpen' });
+    expect(matchVoiceControl('关闭帮助')).toEqual({ type: 'helpClose' });
+    expect(matchVoiceControl('关闭反馈')).toEqual({ type: 'toggleTts', enabled: false });
+    expect(matchVoiceControl('开启反馈')).toEqual({ type: 'toggleTts', enabled: true });
   });
 });

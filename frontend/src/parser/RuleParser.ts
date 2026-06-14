@@ -38,7 +38,7 @@ const PRESET_KEYWORDS: Array<{ re: RegExp; preset: string }> = [
   { re: /房子|房屋|小屋|屋子/, preset: 'house' },
   { re: /太阳/, preset: 'sun' },
   { re: /雪人/, preset: 'snowman' },
-  { re: /小猫|猫咪|猫/, preset: 'cat' },
+  { re: /小猫|猫咪|(?<!熊)猫/, preset: 'cat' }, // 排除“熊猫”——交给 AI 文生图
   { re: /花朵|花儿|花/, preset: 'flower' },
   { re: /大树|树木|树/, preset: 'tree' },
 ];
@@ -214,7 +214,10 @@ function matchCreate(seg: string): DrawCommand | null {
   }
 
   const shape = findShape(seg);
-  if (!shape) return null;
+  if (!shape) {
+    // 既不是基础图形也不是预设：若有绘制意图+具体物体，交给 AI 文生图（画熊猫/芒果/星空…）
+    return buildImagine(seg);
+  }
 
   const count = findCount(seg);
   const color = findColor(seg);
@@ -252,6 +255,26 @@ function matchCreate(seg: string): DrawCommand | null {
 function findPreset(seg: string): string | null {
   for (const { re, preset } of PRESET_KEYWORDS) if (re.test(seg)) return preset;
   return null;
+}
+
+/** 非图形/预设但有绘制意图 → AI 文生图。提取物体短语作为提示词。 */
+function buildImagine(seg: string): DrawCommand | null {
+  if (!/画|绘|生成|做一?[个张幅只]|来一?[个张幅只]/.test(seg)) return null; // 必须有绘制意图
+  const position = findPosition(seg);
+  const sizeScale = findSize(seg);
+  const prompt = seg
+    .replace(/(画出来|画一下|画|绘制|绘|生成|做|来)/g, '')
+    .replace(/[一二两三四五六七八九十\d]+\s*(个|只|张|幅|条|匹|头|朵|棵|片|辆|架|杯|座|位)/g, '')
+    .replace(/^(一)?(个|只|张|幅|条|匹|头|朵|棵|片|辆|架|杯|座|位)/, '')
+    .replace(/(左上角|右上角|左下角|右下角|左上|右上|左下|右下|上面|上方|顶部|下面|下方|底部|左边|左侧|右边|右侧|中间|中央|正中|居中)/g, '')
+    .replace(/的?(图片|图像|照片|图)$/g, '')
+    .replace(/[，,。.!！?？、]/g, '')
+    .trim();
+  if (prompt.length < 1 || prompt.length > 24) return null;
+  const props: { position?: PositionHint; sizeScale?: number } = {};
+  if (position) props.position = position;
+  if (sizeScale) props.sizeScale = sizeScale;
+  return { op: 'imagine', prompt, props };
 }
 
 function buildText(seg: string): DrawCommand {
@@ -356,7 +379,7 @@ function findSize(seg: string): number | undefined {
 }
 
 function findLayout(seg: string): Layout | undefined {
-  if (/一行|横排|横向|并排|排成一行/.test(seg)) return 'row';
+  if (/一行|横排|横向|并排|排成一行|均匀分布|平均分布|均匀排列/.test(seg)) return 'row';
   if (/一列|竖排|纵向|排成一列/.test(seg)) return 'col';
   if (/网格|方阵|矩阵/.test(seg)) return 'grid';
   return undefined;
@@ -370,7 +393,7 @@ function findPosition(seg: string): PositionHint | undefined {
   if (/上面|上方|顶部|最上/.test(seg)) return 'top';
   if (/下面|下方|底部|最下/.test(seg)) return 'bottom';
   if (/左边|左侧|靠左/.test(seg)) return 'left';
-  if (/右边|右侧|靠右/.test(seg)) return 'right';
+  if (/右边|右侧|靠右|旁边|边上/.test(seg)) return 'right';
   if (/中间|中央|正中|居中/.test(seg)) return 'center';
   return undefined;
 }

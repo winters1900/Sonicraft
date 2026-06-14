@@ -1,49 +1,39 @@
-// DrawCommand DSL —— 自然语言指令解析后的结构化中间表示。
-// 规则解析器(本地)与 LLM 解析器(后端)都产出 DrawCommand[]，由 CommandExecutor 统一执行。
-// 一句话可拆解为多条命令，这是“复杂指令拆解”的载体。
+import { resolveColor } from './colors';
 
 export type ShapeName =
   | 'circle' | 'rect' | 'line' | 'arrow' | 'triangle' | 'text'
   | 'ellipse' | 'polygon' | 'star' | 'heart' | 'arc';
 
 export type Layout = 'row' | 'col' | 'grid';
-
-/** 画面方位提示，执行器按画布尺寸换算为坐标。 */
 export type PositionHint =
   | 'center' | 'top' | 'bottom' | 'left' | 'right'
   | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
-
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
-/** 选择/指代目标。省略时执行器默认作用于当前选中集合。 */
 export type SelectTarget =
   | { kind: 'last' }
   | { kind: 'all' }
   | { kind: 'byType'; shape: ShapeName }
   | { kind: 'byColor'; color: string }
-  | { kind: 'byIndex'; index: number } // 1-based，从最早创建算起
-  | { kind: 'group'; preset: string }; // 按组合预设名整体选中（“选中房子”）
+  | { kind: 'byIndex'; index: number }
+  | { kind: 'group'; preset: string };
 
 export interface ShapeProps {
   color?: string;
   fill?: boolean;
   strokeWidth?: number;
-  /** 相对默认尺寸的缩放系数（“大一点”=1.3，“小”=0.6）。 */
   sizeScale?: number;
-  /** text 图形的文字内容。 */
   text?: string;
   position?: PositionHint;
-  /** polygon 的边数（五边形=5，六边形=6…）。 */
   sides?: number;
-  /** star 的角数（五角星=5）。 */
   points?: number;
 }
 
 export interface CreateCommand {
   op: 'create';
   shape: ShapeName;
-  count?: number; // 默认 1
-  layout?: Layout; // count>1 时的排布方式，默认 row
+  count?: number;
+  layout?: Layout;
   props?: ShapeProps;
 }
 
@@ -58,18 +48,25 @@ export interface UndoCommand { op: 'undo' }
 export interface RedoCommand { op: 'redo' }
 export interface ClearCommand { op: 'clear' }
 export interface ExportCommand { op: 'export' }
-/** 组合/语义绘图：一个预设名展开为多个图元（笑脸/房子/太阳…），是“复杂指令拆解”的载体。 */
+
 export interface ComposeCommand {
   op: 'compose';
   preset: string;
   props?: { position?: PositionHint; sizeScale?: number; color?: string };
 }
-/** 无法解析时的兜底，携带原文以便语音追问。 */
+
+export interface ImagineCommand {
+  op: 'imagine';
+  prompt: string;
+  props?: { position?: PositionHint; sizeScale?: number };
+}
+
 export interface UnknownCommand { op: 'unknown'; raw: string; reason?: string }
 
 export type DrawCommand =
   | CreateCommand
   | ComposeCommand
+  | ImagineCommand
   | SelectCommand
   | MoveCommand
   | ScaleCommand
@@ -87,8 +84,13 @@ export const SHAPE_NAMES: ShapeName[] = [
   'circle', 'rect', 'line', 'arrow', 'triangle', 'text',
   'ellipse', 'polygon', 'star', 'heart', 'arc',
 ];
+const LAYOUTS: Layout[] = ['row', 'col', 'grid'];
+const POSITIONS: PositionHint[] = [
+  'center', 'top', 'bottom', 'left', 'right',
+  'top-left', 'top-right', 'bottom-left', 'bottom-right',
+];
+const DIRECTIONS: Direction[] = ['up', 'down', 'left', 'right'];
 
-/** 形状的中文显示名，用于语音/文字反馈。 */
 export const SHAPE_LABEL: Record<ShapeName, string> = {
   circle: '圆形',
   rect: '矩形',
@@ -103,7 +105,6 @@ export const SHAPE_LABEL: Record<ShapeName, string> = {
   arc: '弧形',
 };
 
-/** 组合预设名清单与中文显示名。 */
 export const PRESET_NAMES = ['face', 'house', 'sun', 'tree', 'flower', 'snowman', 'cat'] as const;
 export type PresetName = (typeof PRESET_NAMES)[number];
 export const PRESET_LABEL: Record<string, string> = {
@@ -116,26 +117,30 @@ export const PRESET_LABEL: Record<string, string> = {
   cat: '小猫',
 };
 
-/** 轻量结构校验：过滤掉缺关键字段的非法命令，保证执行器输入可靠。 */
 export function isValidCommand(c: unknown): c is DrawCommand {
   if (!c || typeof c !== 'object') return false;
   const op = (c as { op?: unknown }).op;
   switch (op) {
     case 'create':
-      return SHAPE_NAMES.includes((c as CreateCommand).shape);
+      return validCreate(c as CreateCommand);
     case 'compose':
-      return PRESET_NAMES.includes((c as ComposeCommand).preset as PresetName);
+      return validCompose(c as ComposeCommand);
+    case 'imagine':
+      return validImagine(c as ImagineCommand);
     case 'recolor':
-      return typeof (c as RecolorCommand).color === 'string';
+      return validTarget((c as RecolorCommand).target) && validColor((c as RecolorCommand).color);
     case 'scale':
-      return typeof (c as ScaleCommand).factor === 'number';
+      return validTarget((c as ScaleCommand).target) && finiteIn((c as ScaleCommand).factor, 0.05, 10);
     case 'rotate':
-      return typeof (c as RotateCommand).deg === 'number';
+      return validTarget((c as RotateCommand).target) && finiteIn((c as RotateCommand).deg, -3600, 3600);
     case 'select':
-      return typeof (c as SelectCommand).target === 'object';
+      return validTarget((c as SelectCommand).target, true);
     case 'move':
+      return validMove(c as MoveCommand);
     case 'style':
+      return validStyle(c as StyleCommand);
     case 'delete':
+      return validTarget((c as DeleteCommand).target);
     case 'undo':
     case 'redo':
     case 'clear':
@@ -145,4 +150,86 @@ export function isValidCommand(c: unknown): c is DrawCommand {
     default:
       return false;
   }
+}
+
+function validCreate(c: CreateCommand): boolean {
+  if (!SHAPE_NAMES.includes(c.shape)) return false;
+  if (c.count != null && !integerIn(c.count, 1, 50)) return false;
+  if (c.layout != null && !LAYOUTS.includes(c.layout)) return false;
+  return validProps(c.props);
+}
+
+function validCompose(c: ComposeCommand): boolean {
+  if (!PRESET_NAMES.includes(c.preset as PresetName)) return false;
+  const props = c.props;
+  if (props == null) return true;
+  if (props.position != null && !POSITIONS.includes(props.position)) return false;
+  if (props.sizeScale != null && !finiteIn(props.sizeScale, 0.05, 10)) return false;
+  return props.color == null || validColor(props.color);
+}
+
+function validImagine(c: ImagineCommand): boolean {
+  if (typeof c.prompt !== 'string' || !c.prompt.trim()) return false;
+  const props = c.props;
+  if (props == null) return true;
+  if (props.position != null && !POSITIONS.includes(props.position)) return false;
+  return props.sizeScale == null || finiteIn(props.sizeScale, 0.05, 10);
+}
+
+function validMove(c: MoveCommand): boolean {
+  if (!validTarget(c.target)) return false;
+  if (c.direction != null && !DIRECTIONS.includes(c.direction)) return false;
+  if (c.distance != null && !finiteIn(c.distance, 1, 5000)) return false;
+  if (c.dx != null && !finiteIn(c.dx, -5000, 5000)) return false;
+  return c.dy == null || finiteIn(c.dy, -5000, 5000);
+}
+
+function validStyle(c: StyleCommand): boolean {
+  if (!validTarget(c.target)) return false;
+  if (c.fill != null && typeof c.fill !== 'boolean') return false;
+  return c.strokeWidth == null || finiteIn(c.strokeWidth, 0.5, 80);
+}
+
+function validProps(props: ShapeProps | undefined): boolean {
+  if (props == null) return true;
+  if (props.color != null && !validColor(props.color)) return false;
+  if (props.fill != null && typeof props.fill !== 'boolean') return false;
+  if (props.strokeWidth != null && !finiteIn(props.strokeWidth, 0.5, 80)) return false;
+  if (props.sizeScale != null && !finiteIn(props.sizeScale, 0.05, 10)) return false;
+  if (props.position != null && !POSITIONS.includes(props.position)) return false;
+  if (props.sides != null && !integerIn(props.sides, 3, 20)) return false;
+  if (props.points != null && !integerIn(props.points, 3, 20)) return false;
+  return props.text == null || typeof props.text === 'string';
+}
+
+function validTarget(target: SelectTarget | undefined, required = false): boolean {
+  if (target == null) return !required;
+  if (typeof target !== 'object') return false;
+  switch (target.kind) {
+    case 'last':
+    case 'all':
+      return true;
+    case 'byType':
+      return SHAPE_NAMES.includes(target.shape);
+    case 'byColor':
+      return validColor(target.color);
+    case 'byIndex':
+      return integerIn(target.index, 1, 10000);
+    case 'group':
+      return typeof target.preset === 'string' && target.preset.trim().length > 0;
+    default:
+      return false;
+  }
+}
+
+function validColor(color: string | undefined): boolean {
+  return typeof color === 'string' && Boolean(resolveColor(color));
+}
+
+function finiteIn(n: number | undefined, min: number, max: number): boolean {
+  return typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
+}
+
+function integerIn(n: number | undefined, min: number, max: number): boolean {
+  return typeof n === 'number' && Number.isInteger(n) && n >= min && n <= max;
 }

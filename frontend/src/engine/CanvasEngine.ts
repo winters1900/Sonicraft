@@ -21,6 +21,8 @@ export class CanvasEngine {
   private undoStack: EngineState[] = [];
   private redoStack: EngineState[] = [];
   private listeners = new Set<Listener>();
+  /** image 图元的图片元素缓存（按 src）；加载完成后触发重绘。 */
+  private imageCache = new Map<string, HTMLImageElement>();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -38,6 +40,11 @@ export class CanvasEngine {
 
   getState(): EngineState {
     return { shapes: this.shapes.map((s) => ({ ...s })), selectedIds: [...this.selectedIds] };
+  }
+
+  replaceState(state: EngineState): void {
+    this.restore(state);
+    this.emit();
   }
 
   get width(): number {
@@ -164,6 +171,11 @@ export class CanvasEngine {
         base.r = props.r ?? SHAPE_DEFAULTS.arcR;
         base.a0 = props.a0 ?? 0;
         base.a1 = props.a1 ?? 180;
+        break;
+      case 'image':
+        base.w = props.w ?? SHAPE_DEFAULTS.imageW;
+        base.h = props.h ?? SHAPE_DEFAULTS.imageH;
+        base.src = props.src;
         break;
     }
     if (props.groupId) base.groupId = props.groupId;
@@ -466,8 +478,37 @@ export class CanvasEngine {
         ctx.stroke();
         break;
       }
+      case 'image': {
+        const w = s.w ?? SHAPE_DEFAULTS.imageW;
+        const h = s.h ?? SHAPE_DEFAULTS.imageH;
+        const img = s.src ? this.getImage(s.src) : null;
+        if (img && img.complete && img.naturalWidth > 0) {
+          ctx.drawImage(img, -w / 2, -h / 2, w, h);
+        } else {
+          // 加载中占位：仅淡色虚线框，不显示文字
+          ctx.fillStyle = 'rgba(6, 99, 119, 0.06)';
+          ctx.fillRect(-w / 2, -h / 2, w, h);
+          ctx.strokeStyle = 'rgba(79, 140, 255, 0.5)';
+          ctx.setLineDash([6, 4]);
+          ctx.strokeRect(-w / 2, -h / 2, w, h);
+          ctx.setLineDash([]);
+        }
+        break;
+      }
     }
     ctx.restore();
+  }
+
+  /** 取/建 image 图元的图片元素；首次加载完成后触发一次重绘。 */
+  private getImage(src: string): HTMLImageElement | null {
+    if (typeof Image === 'undefined') return null; // 非浏览器环境（测试）
+    const cached = this.imageCache.get(src);
+    if (cached) return cached;
+    const img = new Image();
+    img.onload = () => this.render();
+    img.src = src;
+    this.imageCache.set(src, img);
+    return img;
   }
 
   private drawSelection(s: Shape): void {

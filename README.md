@@ -1,92 +1,71 @@
-# 🎙️ AI 语音绘图工具 (Voice Draw)
+# Sonicraft
 
-> 七牛云暑期比赛作品 · **纯语音控制的 Canvas 绘图工具**——不用鼠标键盘，开口即画。
+纯语音控制的 Canvas 绘图工具。目标：首次授权麦克风后，用户通过语音完成绘图、调整、撤销、保存、帮助开关与反馈开关。
 
-完整闭环：**语音输入 (七牛 ASR) → 指令理解 (本地规则 + 七牛 LLM 拆解) → Canvas 绘图执行 → 语音反馈 (七牛 TTS)**。
-高频指令本地秒级响应，复杂/口语化指令自动交由七牛大模型理解，全程不依赖鼠标键盘。
+## 当前架构
 
-## ✨ 功能亮点
+- **ASR**：默认浏览器内 Whisper（`@huggingface/transformers` + `Xenova/whisper-small`），无需后端密钥；Web Speech 可手动切换兜底。
+- **指令理解**：本地规则解析几何、布局、样式、变换、撤销等高频命令；未知但有绘图意图的对象转为 `imagine`。
+- **任意物体绘图**：后端代理 Hugging Face 文生图，默认 `black-forest-labs/FLUX.1-schnell`，生成图片图元落到画布。
+- **TTS**：浏览器原生 `SpeechSynthesis`，播报期间有 TTS gate 抑制回声。
+- **无七牛依赖**：已移除七牛 ASR、LLM、TTS、Kodo 配置与运行路径。
 
-- **纯语音闭环**：开口即画——**持续聆听**（自动断句，无需逐句点击）→ 实时字幕 → 绘图 → 语音确认，全程不碰鼠标键盘。
-- **混合解析**：本地正则快路径（<1ms）兼顾延迟，七牛 LLM 兜底兼顾理解力与容错。
-- **复杂指令拆解**：「画三个红色的圆排成一行，然后在上面写标题」→ 自动拆成多步执行。
-- **组合/语义绘图**：一句「画一个笑脸 / 房子 / 太阳 / 树 / 花」即生成多图元组合；并可作为**整体**重选、移动、缩放（不散开）。
-- **丰富图形**：圆/矩形/线/箭头/三角/文字 + 五角星/椭圆/多边形/心形/弧形；~55 种颜色（“深蓝/草绿”等精确色不被遮蔽）。
-- **强容错**：口语填充词/纠错（“帮我…”“不对，改成…”）自动归一化；口语线宽（“粗一点/细一点”）、实心/空心；听不懂会语音追问。
-- **回声抑制**：语音反馈播报时自动静音麦克风，杜绝系统把自己的播报当成新指令。
-- **双引擎可切换 + 兜底**：ASR/TTS「七牛优先 + 浏览器原生兜底」，**无密钥也能完整演示**绘图链路。
-
-## 🎬 Demo 视频
-
-> 待补充：上传至 bilibili / 云盘后填入可播放链接。
-
-## 🚀 快速开始
+## 快速启动
 
 ```bash
-# 1. 安装依赖（根 + 前端 + 后端）
 npm run install:all
-
-# 2. 配置七牛密钥（启用 LLM / 七牛语音；纯规则解析与浏览器语音无需密钥）
-cp backend/.env.example backend/.env
-#   - QINIU_API_KEY：AI 大模型推理密钥（LLM/ASR/TTS）
-#   - QINIU_KODO_AK/SK/BUCKET/DOMAIN：七牛对象存储凭证（七牛 ASR 必需，用于把录音换成公网 URL）
-#   未配置 Kodo 时，七牛 ASR 不可用，请在界面切到「浏览器」识别
-
-# 3. 一键启动前后端
+copy backend\.env.example backend\.env
+# 在 backend\.env 写入新的 HF_TOKEN（不要使用已泄露 token）
 npm run dev
-# 前端 http://localhost:5173 ，后端 http://localhost:8787
 ```
 
-> 密钥获取：七牛开发者中心《获取 AI 大模型推理 API 密钥》（赛事赠送额度）；Kodo 的 AK/SK 见控制台「密钥管理」+「对象存储」建桶绑定域名。
-> 未配置密钥时，应用自动使用浏览器原生语音识别 + 本地规则解析，仍可演示绘图全链路。
-> 注：七牛 ASR 为「服务端回拉音频」模式，需经 Kodo 换公网 URL（已内置）；调试中文接口请勿用 Windows 自带 curl（会破坏 UTF-8）。
+前端默认 Vite 地址通常是 `http://localhost:5173`，后端默认 `http://localhost:8787`。
 
-### 常用脚本
-| 命令 | 作用 |
-| --- | --- |
-| `npm run dev` | 同时启动前后端（concurrently） |
-| `npm test` | 运行前端单元测试（65 项） |
-| `npm run build` | 前端构建 + 后端类型检查 |
+## 环境变量
 
-## 🗣️ 指令示例
-
-| 类别 | 示例 |
-| --- | --- |
-| 创建 | 画一个红色的圆 / 画三个蓝色的方块排成一行 / 在左上角画个大三角形 / 画一个五角星 / 画一个椭圆 / 画一个六边形 / 写标题「你好」 |
-| 组合绘图 | 画一个笑脸 / 在右上角画个房子 / 画一棵树 / 画一朵红色的花 / 画一只小猫 / 画个太阳 |
-| 样式 | 把它变成绿色 / 改成实心 / 把它变粗 / 细一点 / 把所有圆变成深蓝 |
-| 变换 | 放大一点 / 缩小 / 向右移动100像素 / 旋转45度 / 选中所有三角形 / **选中房子 / 把笑脸放大**（整组） |
-| 管理 | 删除最后一个 / 撤销 / 重做 / 清空画布 / 保存图片（下载 PNG） |
-| 语音控制 | 停止聆听 / （说错了）不对，改成蓝色 |
-
-界面右上角「❓ 指令帮助」内有完整能力清单。
-
-## 🧱 项目结构
-
-```
-qiniu/
-├── frontend/   # React + TypeScript + Vite：引擎/解析/执行/语音/UI
-│   └── src/{engine,parser,executor,voice,controller,components}
-├── backend/    # Node + Express：七牛 LLM/ASR/TTS 代理 + Kodo 上传（密钥隔离）
-│   └── src/{routes,parser,qiniu.ts,kodo.ts,server.ts}
-├── shared/     # 前后端共享的 DrawCommand 指令类型(DSL) + 颜色归一化
-└── docs/DESIGN.md   # 设计文档（能力清单/已实现/未完成原因/架构决策）
+```env
+HF_TOKEN=
+HF_IMAGE_MODEL=black-forest-labs/FLUX.1-schnell
+IMAGINE_TIMEOUT_MS=60000
+CORS_ORIGINS=
+RATE_LIMIT_MAX=120
+RATE_LIMIT_WINDOW_MS=60000
 ```
 
-架构、设计决策与能力清单详见 **[docs/DESIGN.md](docs/DESIGN.md)**。
+`HF_TOKEN` 只在后端读取。未配置时几何绘图仍可用，但“画熊猫/芒果”等任意物体文生图不可用。
 
-## 🛠️ 技术栈与依赖
+## 示例口令
 
-| 部分 | 选型 |
+| 类型 | 示例 |
 | --- | --- |
-| 前端 | React 18、TypeScript、Vite 6、Vitest |
-| 后端 | Node、Express、ws、dotenv、cors、qiniu（Kodo SDK） |
-| AI 能力 | 七牛云 AI 大模型推理（OpenAI 兼容）、七牛 ASR、七牛 TTS、七牛对象存储 Kodo |
-| 浏览器兜底 | Web Speech API（SpeechRecognition / SpeechSynthesis） |
+| 几何绘图 | 画一个红色的圆 / 画三个蓝色方块排成一行 / 在左上角画大三角形 |
+| 任意物体 | 画一只熊猫 / 画一个芒果 / 画一辆红色小汽车 |
+| 组合绘图 | 画一个笑脸 / 画一座房子 / 画一棵树 / 画一只小猫 |
+| 编辑变换 | 把它变成绿色 / 放大一点 / 向右移动100像素 / 旋转45度 |
+| 管理 | 撤销 / 重做 / 清空画布 / 保存图片 |
+| 应用控制 | 开始聆听 / 停止聆听 / 切到 Whisper 识别 / 切到浏览器识别 / 打开帮助 / 关闭反馈 |
 
-**原创性说明**：业务逻辑（绘图引擎、指令 DSL、规则/混合解析、执行器、语音编排）均为本项目原创实现。
-第三方依赖仅为上述通用框架/工具库，均在各 `package.json` 中列明；语音识别/合成与大模型推理调用七牛云官方服务。
+## 测试
 
-## 👥 团队分工
+```bash
+npm test
+npm run build
+npm run lint
+npm audit
+```
 
-> 多人组队时在此登记各自负责的 PR/模块；队员均使用各自 GitHub 账号提交 commit（见 [docs/DESIGN.md](docs/DESIGN.md) 分工章节）。
+## 目录
+
+```text
+frontend/src/
+  components/   UI 面板、帮助
+  controller/   文本/语音命令执行闭环
+  engine/       Canvas 图元、渲染、撤销
+  executor/     DrawCommand 执行、预设组合、HF 图像客户端
+  parser/       中文规则解析与黄金集
+  voice/        Whisper/WebSpeech ASR、浏览器 TTS、语音控制
+backend/src/
+  routes/       Hugging Face 文生图代理
+  security.ts   CORS 与限流
+shared/         命令 DSL、颜色、中文数字
+```

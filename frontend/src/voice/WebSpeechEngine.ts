@@ -1,10 +1,9 @@
 import type { EngineKind, VoiceEngine, VoiceHandlers } from './types';
 
 // 浏览器原生语音识别（Web Speech API）。
-// 优点：实时流式、零延迟、无需密钥；用作兜底与本地演示，保证“没有七牛 key 也能跑”。
+// 优点：实时流式、无需密钥；用作 Whisper 不可用时的轻量兜底。
 // 连续模式下每段最终结果触发一次 onFinal，便于逐条执行指令。
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 type SR = any;
 
 function getRecognitionCtor(): SR | null {

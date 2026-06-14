@@ -3,7 +3,7 @@
 
 export type ShapeType =
   | 'circle' | 'rect' | 'line' | 'arrow' | 'triangle' | 'text'
-  | 'ellipse' | 'polygon' | 'star' | 'heart' | 'arc';
+  | 'ellipse' | 'polygon' | 'star' | 'heart' | 'arc' | 'image';
 
 export interface Shape {
   id: string;
@@ -33,6 +33,7 @@ export interface Shape {
   points?: number; // star 角数
   a0?: number; // arc 起始角（度）
   a1?: number; // arc 终止角（度）
+  src?: string; // image 的图片数据(dataURL)，由 AI 文生图生成
 
   // —— 组合/语义绘图分组 ——
   /** 同一次 compose 产出的图元共享此 id，使“房子/笑脸”可作为整体重选与变换。 */
@@ -61,6 +62,8 @@ export const SHAPE_DEFAULTS = {
   starPoints: 5,
   heartSize: 130,
   arcR: 60,
+  imageW: 240,
+  imageH: 240,
 } as const;
 
 let idSeq = 0;
@@ -136,6 +139,11 @@ export function getBounds(s: Shape): Bounds {
     case 'heart': {
       const sz = s.size ?? SHAPE_DEFAULTS.heartSize;
       return { minX: s.x - sz / 2, minY: s.y - sz / 2, maxX: s.x + sz / 2, maxY: s.y + sz / 2 };
+    }
+    case 'image': {
+      const w = s.w ?? SHAPE_DEFAULTS.imageW;
+      const h = s.h ?? SHAPE_DEFAULTS.imageH;
+      return { minX: s.x - w / 2, minY: s.y - h / 2, maxX: s.x + w / 2, maxY: s.y + h / 2 };
     }
   }
 }

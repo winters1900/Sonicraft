@@ -7,6 +7,37 @@ function first(text: string) {
   return parseWithRules(text).commands[0];
 }
 
+describe('AI 文生图路由', () => {
+  it('画一只熊猫 → imagine（不再误判为猫）', () => {
+    const c = first('画一只熊猫') as { op: string; prompt: string };
+    expect(c.op).toBe('imagine');
+    expect(c.prompt).toContain('熊猫');
+  });
+
+  it('画一个芒果 → imagine（未知物体走文生图）', () => {
+    const c = first('画一个芒果') as { op: string; prompt: string };
+    expect(c.op).toBe('imagine');
+    expect(c.prompt).toBe('芒果');
+  });
+
+  it('在右上角画一只老虎 → imagine 且带方位', () => {
+    const c = first('在右上角画一只老虎') as { op: string; prompt: string; props?: { position?: string } };
+    expect(c.op).toBe('imagine');
+    expect(c.prompt).toContain('老虎');
+    expect(c.props?.position).toBe('top-right');
+  });
+
+  it('画一只猫 仍走预设 compose（augment 不抢几何）', () => {
+    const c = first('画一只猫') as { op: string; preset?: string };
+    expect(c.op).toBe('compose');
+    expect(c.preset).toBe('cat');
+  });
+
+  it('画一个圆 仍走几何 create（不被文生图截胡）', () => {
+    expect(first('画一个圆').op).toBe('create');
+  });
+});
+
 describe('创建类指令', () => {
   it('画一个红色的圆', () => {
     const c = first('画一个红色的圆') as CreateCommand;
@@ -204,5 +235,26 @@ describe('复杂指令拆解 / 容错', () => {
   it('部分命中也判定为未完全匹配', () => {
     const r = parseWithRules('画一个圆然后随便干点什么别的事情');
     expect(r.matched).toBe(false);
+  });
+
+  it('空间口语：均匀分布映射为横向排布，旁边映射为右侧方位', () => {
+    const row = first('画四个圆均匀分布');
+    expect(row).toMatchObject({ op: 'create', shape: 'circle', count: 4, layout: 'row' });
+    const side = first('在旁边画一个方块');
+    expect(side).toMatchObject({ op: 'create', shape: 'rect', props: { position: 'right' } });
+  });
+});
+
+describe('AI 文生图回归', () => {
+  it('熊猫不命中小猫预设，改走 imagine', () => {
+    expect(first('画一只熊猫')).toMatchObject({ op: 'imagine', prompt: '熊猫' });
+  });
+
+  it('芒果这类无规则物体走 imagine', () => {
+    expect(first('画一个芒果')).toMatchObject({ op: 'imagine', prompt: '芒果' });
+  });
+
+  it('小猫仍走组合预设', () => {
+    expect(first('画一只小猫')).toMatchObject({ op: 'compose', preset: 'cat' });
   });
 });
