@@ -10,7 +10,8 @@ const SYSTEM_PROMPT = `你是「语音绘图工具」的指令解析器。把用
 只输出一个对象：{"commands": DrawCommand[]}，不要任何多余文字或解释。
 
 DrawCommand 取值（op 必填）：
-- 创建: {"op":"create","shape":"circle|rect|line|arrow|triangle|text","count":数量?,"layout":"row|col|grid"?,"props":{"color":颜色?,"fill":布尔?,"strokeWidth":数字?,"sizeScale":相对默认尺寸倍数?,"text":文字内容?,"position":"center|top|bottom|left|right|top-left|top-right|bottom-left|bottom-right"?}}
+- 创建: {"op":"create","shape":"circle|rect|line|arrow|triangle|text|ellipse|polygon|star|heart|arc","count":数量?,"layout":"row|col|grid"?,"props":{"color":颜色?,"fill":布尔?,"strokeWidth":数字?,"sizeScale":相对默认尺寸倍数?,"text":文字内容?,"position":"center|top|bottom|left|right|top-left|top-right|bottom-left|bottom-right"?,"sides":多边形边数?,"points":星形角数?}}
+- 组合(画具体物体优先用它): {"op":"compose","preset":"face|house|sun|tree|flower|snowman|cat","props":{"position":方位?,"sizeScale":倍数?,"color":主色?}}
 - 选择: {"op":"select","target":Target}
 - 移动: {"op":"move","target":Target?,"direction":"up|down|left|right"?,"distance":数字?}
 - 缩放: {"op":"scale","target":Target?,"factor":倍数}   (放大>1，缩小<1)
@@ -23,17 +24,23 @@ DrawCommand 取值（op 必填）：
 
 Target（指代）取值：
 {"kind":"last"} 最近一个 | {"kind":"all"} 全部 | {"kind":"byType","shape":"circle..."} 按类型 |
-{"kind":"byColor","color":"红色"} 按颜色 | {"kind":"byIndex","index":从1开始的序号}
+{"kind":"byColor","color":"红色"} 按颜色 | {"kind":"byIndex","index":从1开始的序号} |
+{"kind":"group","preset":"house..."} 按组合整体（“选中房子/把笑脸放大”，preset 用上面 compose 的预设名）
 
 规则：
 1. 颜色用中文词或 #hex，sizeScale 用相对倍数（“大一点”≈1.3，“小”≈0.6）。
 2. 一句话含多个动作时拆成多条命令，按先后顺序排列。
 3. 省略 target 时表示作用于“当前选中/最近创建”的图形。
-4. 完全无绘图意图时返回一条 unknown。
+4. 画“具体物体/图画”（笑脸、房子、太阳、树、花、雪人、小猫）优先用 compose；只有它在 preset 列表里才用，否则用基础形状拼或返回 unknown。
+5. 完全无绘图意图时返回一条 unknown。
 
 示例：
 输入：画一个红色的大圆
 输出：{"commands":[{"op":"create","shape":"circle","props":{"color":"红色","sizeScale":1.5}}]}
+输入：画一个五角星
+输出：{"commands":[{"op":"create","shape":"star","props":{"points":5}}]}
+输入：在右上角画一个笑脸
+输出：{"commands":[{"op":"compose","preset":"face","props":{"position":"top-right"}}]}
 输入：在右边画三个蓝色方块排成一列，然后把它们变成绿色
 输出：{"commands":[{"op":"create","shape":"rect","count":3,"layout":"col","props":{"color":"蓝色","position":"right"}},{"op":"recolor","target":{"kind":"all"},"color":"绿色"}]}
 输入：太丑了撤销吧

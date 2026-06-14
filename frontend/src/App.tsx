@@ -12,7 +12,7 @@ export default function App() {
   const { canvasRef, engine, state } = useCanvasEngine(960, 600);
   const [health, setHealth] = useState<{ ok: boolean; qiniuConfigured: boolean } | null>(null);
   const speech = useSpeech(health?.qiniuConfigured ?? false);
-  const { run, log, busy } = useDrawController(engine.current, speech.speakFeedback);
+  const { run, log } = useDrawController(engine.current, speech.speakFeedback);
   const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
@@ -25,14 +25,14 @@ export default function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <h1>🎙️ AI 语音绘图工具</h1>
+        <h1 className="app__title font-firs">Voice Draw</h1>
         <span className="app__status">
           后端：{health === null ? '检测中…' : health.ok ? '已连接 ✓' : '未连接 ✗'}
           {health?.ok && (health.qiniuConfigured ? ' · 七牛已配置' : ' · 未配置密钥(用浏览器识别)')}
         </span>
         <div className="app__header-right">
           <span className="app__status">图形 {state.shapes.length} · 选中 {state.selectedIds.length}</span>
-          <button className="app__help-btn" onClick={() => setShowHelp(true)}>❓ 指令帮助</button>
+          <button className="app__help-btn" onClick={() => setShowHelp(true)}>指令帮助</button>
         </div>
       </header>
 
@@ -49,7 +49,7 @@ export default function App() {
             ttsEnabled={speech.enabled}
             onToggleTts={speech.toggle}
           />
-          <CommandConsole run={run} log={log} busy={busy} />
+          <CommandConsole log={log} />
         </aside>
       </div>
 

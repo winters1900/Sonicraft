@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EngineKind, VoiceEngine } from './types';
 import { WebSpeechEngine } from './WebSpeechEngine';
 import { QiniuAsrEngine } from './QiniuAsrEngine';
 import { matchVoiceControl } from './voiceControl';
+import { isTtsActive } from './ttsGate';
 
 interface UseVoiceOptions {
   /** 后端是否已配置七牛密钥（决定默认引擎）。 */
@@ -29,6 +30,15 @@ export function useVoice({ qiniuConfigured, onFinal }: UseVoiceOptions) {
   const [error, setError] = useState('');
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
+  // 用户是否手动选过引擎；没选过时跟随后端探测结果（health 通常晚于首屏返回）。
+  const userPickedRef = useRef(false);
+
+  // /api/health 返回后若七牛可用且用户未手动切换、当前未在聆听，则默认切到七牛。
+  useEffect(() => {
+    if (!userPickedRef.current && !listening && qiniuConfigured && engines.qiniu.isAvailable()) {
+      setKind('qiniu');
+    }
+  }, [qiniuConfigured, engines, listening]);
 
   const engine = engines[kind];
 
@@ -36,8 +46,18 @@ export function useVoice({ qiniuConfigured, onFinal }: UseVoiceOptions) {
     setError('');
     setPartial('');
     await engine.start({
-      onPartial: setPartial,
+      onPartial: (t) => {
+        if (isTtsActive()) return; // TTS 播报期间忽略回声字幕
+        setError('');
+        setPartial(t);
+      },
       onFinal: (text) => {
+        // 回声抑制：丢弃 TTS 播报期间录回的自身语音，防自激循环
+        if (isTtsActive()) {
+          setPartial('');
+          return;
+        }
+        setError('');
         setPartial('');
         // 先拦截麦克风控制口令（如“停止聆听”），避免被当作绘图指令
         if (matchVoiceControl(text) === 'stop') {
@@ -46,10 +66,9 @@ export function useVoice({ qiniuConfigured, onFinal }: UseVoiceOptions) {
         }
         onFinalRef.current(text);
       },
-      onError: (msg) => {
-        setError(msg);
-        setListening(false);
-      },
+      // 持续聆听下，单段识别出错只提示、不中断监听；下一段成功会自动清除。
+      // 麦克风权限等致命错误时引擎不会发 onStateChange(true)，listening 自然保持 false。
+      onError: (msg) => setError(msg),
       onStateChange: setListening,
     });
   }, [engine]);
@@ -63,6 +82,7 @@ export function useVoice({ qiniuConfigured, onFinal }: UseVoiceOptions) {
 
   const switchEngine = useCallback(
     (next: EngineKind) => {
+      userPickedRef.current = true;
       if (listening) stop();
       setKind(next);
       setPartial('');

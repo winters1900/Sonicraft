@@ -4,14 +4,17 @@
 
 import { resolveColor } from '@shared/colors';
 import {
+  PRESET_LABEL,
   SHAPE_LABEL,
+  type ComposeCommand,
   type CreateCommand,
   type DrawCommand,
   type PositionHint,
   type SelectTarget,
 } from '@shared/commands';
 import { CanvasEngine } from '../engine/CanvasEngine';
-import { SHAPE_DEFAULTS, type Shape, type ShapeType } from '../engine/shapes';
+import { nextGroupId, SHAPE_DEFAULTS, type Shape, type ShapeType } from '../engine/shapes';
+import { PRESETS } from './presets';
 
 export interface ExecOutcome {
   ok: boolean;
@@ -33,6 +36,8 @@ export class CommandExecutor {
     switch (cmd.op) {
       case 'create':
         return this.create(cmd);
+      case 'compose':
+        return this.compose(cmd);
       case 'select':
         return this.select(cmd.target);
       case 'move':
@@ -55,7 +60,7 @@ export class CommandExecutor {
         this.engine.clear();
         return { ok: true, message: '已清空画布', command: cmd };
       case 'export':
-        return { ok: true, message: '已导出当前画布', command: cmd };
+        return this.exportPng(cmd);
       case 'unknown':
         return { ok: false, message: '没太听清，可以换种说法再说一次，比如「画一个红色的圆」', command: cmd };
     }
@@ -77,6 +82,8 @@ export class CommandExecutor {
         ...(props.fill != null ? { fill: props.fill } : {}),
         ...(props.strokeWidth != null ? { strokeWidth: props.strokeWidth } : {}),
         ...(props.text != null ? { text: props.text } : {}),
+        ...(props.sides != null ? { sides: props.sides } : {}),
+        ...(props.points != null ? { points: props.points } : {}),
       }),
     }));
 
@@ -91,6 +98,46 @@ export class CommandExecutor {
       message: `已画${countLabel}${sizeLabel}${colorLabel}${label}${layoutLabel}`,
       command: cmd,
     };
+  }
+
+  // —— 导出 PNG（真正触发浏览器下载）——
+  private exportPng(cmd: DrawCommand): ExecOutcome {
+    if (!this.engine.getState().shapes.length) {
+      return { ok: false, message: '画布是空的，没有可保存的内容', command: cmd };
+    }
+    const url = this.engine.toDataURL();
+    if (typeof document !== 'undefined') {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `voice-draw-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+    return { ok: true, message: '已保存为图片', command: cmd };
+  }
+
+  // —— 组合/语义绘图 ——
+  private compose(cmd: ComposeCommand): ExecOutcome {
+    const fn = PRESETS[cmd.preset];
+    if (!fn) {
+      return {
+        ok: false,
+        message: `暂时不会画「${cmd.preset}」，可以说画圆、笑脸、房子、太阳、树、花`,
+        command: cmd,
+      };
+    }
+    const props = cmd.props ?? {};
+    const { x, y } = this.positionToXY(props.position, this.engine.width, this.engine.height);
+    const color = resolveColor(props.color) ?? '';
+    // 同组图元共享 groupId + groupKind，使其可作为整体重选与变换（绕组中心缩放不散开）。
+    const groupId = nextGroupId();
+    const specs = fn(x, y, props.sizeScale ?? 1, color).map((spec) => ({
+      type: spec.type,
+      props: { ...spec.props, groupId, groupKind: cmd.preset },
+    }));
+    this.engine.addMany(specs);
+    return { ok: true, message: `已画一个${PRESET_LABEL[cmd.preset] ?? cmd.preset}`, command: cmd };
   }
 
   /** 按相对缩放系数算出该形状的实际尺寸属性。 */
@@ -116,6 +163,24 @@ export class CommandExecutor {
           p.x2 = p.x + SHAPE_DEFAULTS.lineLen * scale;
           p.y2 = p.y;
         }
+        break;
+      case 'ellipse':
+        p.w = SHAPE_DEFAULTS.ellipseW * scale;
+        p.h = SHAPE_DEFAULTS.ellipseH * scale;
+        break;
+      case 'polygon':
+        p.r = SHAPE_DEFAULTS.polygonR * scale;
+        break;
+      case 'star':
+        p.r = SHAPE_DEFAULTS.starR * scale;
+        break;
+      case 'heart':
+        p.size = SHAPE_DEFAULTS.heartSize * scale;
+        break;
+      case 'arc':
+        p.r = SHAPE_DEFAULTS.arcR * scale;
+        p.a0 = 0;
+        p.a1 = 180;
         break;
     }
     return p;
@@ -174,10 +239,12 @@ export class CommandExecutor {
   // —— 选区 / 指代解析 ——
   private resolveTarget(target?: SelectTarget): string[] {
     const { shapes, selectedIds } = this.engine.getState();
-    if (!target) return selectedIds;
+    // 默认作用于当前选区；扩展到完整组，使“房子”整体被命中。
+    if (!target) return this.engine.expandGroups(selectedIds);
     switch (target.kind) {
       case 'last':
-        return this.engine.lastShapeId();
+        // “最后一个”指最近创建：若它属于某组，则整组（删一座房子而非只删一块）。
+        return this.engine.expandGroups(this.engine.lastShapeId());
       case 'all':
         return shapes.map((s) => s.id);
       case 'byType':
@@ -188,8 +255,11 @@ export class CommandExecutor {
       }
       case 'byIndex': {
         const s = shapes[target.index - 1];
-        return s ? [s.id] : [];
+        return s ? this.engine.expandGroups([s.id]) : [];
       }
+      case 'group':
+        // 按组合预设名整体选中（如所有“房子”的全部部件）。
+        return shapes.filter((s) => s.groupKind === target.preset).map((s) => s.id);
     }
   }
 
@@ -240,12 +310,15 @@ export class CommandExecutor {
 
   private style(cmd: DrawCommand & { op: 'style' }): ExecOutcome {
     const ids = this.resolveTarget(cmd.target);
-    if (!ids.length) return { ok: false, message: '请先选择图形', command: cmd };
+    if (!ids.length) return { ok: false, message: '还没有选中图形，先说「选中最后一个」或某个图形', command: cmd };
     const patch: Partial<Shape> = {};
     if (cmd.fill != null) patch.fill = cmd.fill;
     if (cmd.strokeWidth != null) patch.strokeWidth = cmd.strokeWidth;
     this.engine.update(patch, ids);
-    return { ok: true, message: '已调整样式', command: cmd };
+    const parts: string[] = [];
+    if (cmd.fill != null) parts.push(cmd.fill ? '改为实心' : '改为空心');
+    if (cmd.strokeWidth != null) parts.push(cmd.strokeWidth >= 6 ? '描边加粗' : '描边变细');
+    return { ok: true, message: `已${parts.join('、') || '调整样式'}`, command: cmd };
   }
 
   private remove(target?: SelectTarget): ExecOutcome {

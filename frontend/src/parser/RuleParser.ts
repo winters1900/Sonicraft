@@ -18,12 +18,29 @@ export interface RuleParseResult {
 }
 
 // —— 关键词表 ——
+// 顺序很重要：椭圆/半圆都含“圆”、五边形含“五”，必须放在“圆”之前优先命中。
 const SHAPE_PATTERNS: Array<{ re: RegExp; shape: ShapeName }> = [
+  { re: /五角星|星星|星形|star/i, shape: 'star' },
+  { re: /椭圆|oval|ellipse/i, shape: 'ellipse' },
+  { re: /心形|爱心|桃心|heart/i, shape: 'heart' },
+  { re: /多边形|[三四五六七八]边形|polygon/i, shape: 'polygon' },
+  { re: /半圆|弧形|弧线|arc/i, shape: 'arc' },
   { re: /圆形|圆圈|圆|circle/i, shape: 'circle' },
   { re: /箭头|arrow/i, shape: 'arrow' },
   { re: /三角形|三角|triangle/i, shape: 'triangle' },
   { re: /矩形|长方形|正方形|方块|方形|rect|square/i, shape: 'rect' },
   { re: /直线|线条|线段|横线|竖线|line/i, shape: 'line' },
+];
+
+// 组合/语义绘图关键词 → 预设名。命中即整组展开（零延迟，无需 LLM）。
+const PRESET_KEYWORDS: Array<{ re: RegExp; preset: string }> = [
+  { re: /笑脸|微笑|笑容|人脸|脸/, preset: 'face' },
+  { re: /房子|房屋|小屋|屋子/, preset: 'house' },
+  { re: /太阳/, preset: 'sun' },
+  { re: /雪人/, preset: 'snowman' },
+  { re: /小猫|猫咪|猫/, preset: 'cat' },
+  { re: /花朵|花儿|花/, preset: 'flower' },
+  { re: /大树|树木|树/, preset: 'tree' },
 ];
 
 const CN_NUM: Record<string, number> = {
@@ -76,6 +93,7 @@ function parseSegment(seg: string): DrawCommand | null {
     matchGlobal(seg) ??
     matchDelete(seg) ??
     matchRecolor(seg) ??
+    matchStyle(seg) ??
     matchScale(seg) ??
     matchRotate(seg) ??
     matchMove(seg) ??
@@ -107,6 +125,24 @@ function matchRecolor(seg: string): DrawCommand | null {
   const color = findColor(seg);
   if (!hasVerb || !color) return null;
   return { op: 'recolor', color, target: detectTarget(seg) };
+}
+
+// —— 样式：口语线宽（粗/细）与填充切换（实心/空心），不含创建 ——
+function matchStyle(seg: string): DrawCommand | null {
+  if (/画|写/.test(seg)) return null; // “画一个实心圆”归创建，由 matchCreate 处理
+  let strokeWidth: number | undefined;
+  if (/粗/.test(seg)) strokeWidth = /很|特别|最|超|更/.test(seg) ? 10 : 6;
+  else if (/细/.test(seg)) strokeWidth = /很|特别|最|超|更/.test(seg) ? 1 : 2;
+  let fill: boolean | undefined;
+  if (/实心|填满|涂满|填充/.test(seg)) fill = true;
+  else if (/空心|镂空/.test(seg)) fill = false;
+  if (strokeWidth == null && fill == null) return null;
+  return {
+    op: 'style',
+    target: detectTarget(seg),
+    ...(strokeWidth != null ? { strokeWidth } : {}),
+    ...(fill != null ? { fill } : {}),
+  };
 }
 
 // —— 缩放 ——
@@ -163,6 +199,20 @@ function matchCreate(seg: string): DrawCommand | null {
   if (/写|文字|文本|标题|字/.test(seg) && !hasShape(seg, 'exceptText')) {
     return buildText(seg);
   }
+
+  // 组合/语义绘图优先：命中“笑脸/房子/太阳…”整组展开（但 star/heart 等已是基础形状，不在此表）
+  const preset = findPreset(seg);
+  if (preset) {
+    const cp: { position?: PositionHint; sizeScale?: number; color?: string } = {};
+    const pos = findPosition(seg);
+    const sz = findSize(seg);
+    const col = findColor(seg);
+    if (pos) cp.position = pos;
+    if (sz) cp.sizeScale = sz;
+    if (col) cp.color = col;
+    return { op: 'compose', preset, props: cp };
+  }
+
   const shape = findShape(seg);
   if (!shape) return null;
 
@@ -173,12 +223,23 @@ function matchCreate(seg: string): DrawCommand | null {
   const position = findPosition(seg);
   const fill = findFill(seg);
 
-  const p: { color?: string; sizeScale?: number; position?: PositionHint; fill?: boolean } = {};
+  const p: {
+    color?: string; sizeScale?: number; position?: PositionHint; fill?: boolean; sides?: number; points?: number;
+  } = {};
   if (color) p.color = color;
   if (sizeScale) p.sizeScale = sizeScale;
   if (position) p.position = position;
   if (fill != null) p.fill = fill;
+  if (shape === 'polygon') {
+    const sides = findSides(seg);
+    if (sides) p.sides = sides;
+  }
+  if (shape === 'star') {
+    const pts = findStarPoints(seg);
+    if (pts) p.points = pts;
+  }
 
+  // findCount 需带量词（个/条…）才计数，故“五边形/六角星”里的数字不会被误当数量。
   return {
     op: 'create',
     shape,
@@ -186,6 +247,11 @@ function matchCreate(seg: string): DrawCommand | null {
     ...(count > 1 && layout ? { layout } : count > 1 ? { layout: 'row' as Layout } : {}),
     props: p,
   };
+}
+
+function findPreset(seg: string): string | null {
+  for (const { re, preset } of PRESET_KEYWORDS) if (re.test(seg)) return preset;
+  return null;
 }
 
 function buildText(seg: string): DrawCommand {
@@ -238,13 +304,47 @@ function findCount(seg: string): number {
 // 返回匹配到的颜色「词」（而非 hex）。DSL 携带语义颜色，由执行器在落地时归一化，
 // 这样反馈文案可读（“红色”而非“#e23b3b”），也兼容 LLM 直接输出的中文色名。
 function findColor(seg: string): string | undefined {
+  // 取最长匹配；长度相同时偏好非“色”后缀的具体色（草绿 > 绿色、深蓝 > 蓝色）。
+  let best: string | undefined;
   for (const kw of COLOR_KEYWORDS) {
-    if (seg.includes(kw)) return kw;
+    if (!seg.includes(kw)) continue;
+    if (
+      !best ||
+      kw.length > best.length ||
+      (kw.length === best.length && best.endsWith('色') && !kw.endsWith('色'))
+    ) {
+      best = kw;
+    }
   }
+  if (best) return best;
   const en = seg.match(/\b(red|blue|green|yellow|orange|purple|black|white|gray|grey|pink|cyan|brown)\b/i);
   if (en) return en[1].toLowerCase();
   const hex = seg.match(/#[0-9a-f]{3,6}/i);
   if (hex) return hex[0];
+  return undefined;
+}
+
+/** 多边形边数：“五边形”→5，“12边形”→12。无则 undefined（引擎用默认 6）。 */
+function findSides(seg: string): number | undefined {
+  const cn = seg.match(/([三四五六七八九十])\s*边形/);
+  if (cn) return CN_NUM[cn[1]];
+  const digit = seg.match(/(\d+)\s*边形/);
+  if (digit) {
+    const n = Number(digit[1]);
+    if (n >= 3 && n <= 20) return n;
+  }
+  return undefined;
+}
+
+/** 星形角数：“六角星”→6。默认五角（undefined → 引擎用 5）。 */
+function findStarPoints(seg: string): number | undefined {
+  const cn = seg.match(/([三四五六七八九十])\s*角星/);
+  if (cn) return CN_NUM[cn[1]];
+  const digit = seg.match(/(\d+)\s*角星/);
+  if (digit) {
+    const n = Number(digit[1]);
+    if (n >= 3 && n <= 20) return n;
+  }
   return undefined;
 }
 
@@ -290,6 +390,9 @@ function detectTarget(seg: string): SelectTarget | undefined {
     const n = /\d/.test(idx[1]) ? Number(idx[1]) : CN_NUM[idx[1]];
     if (n) return { kind: 'byIndex', index: n };
   }
+  // 组合预设名整体指代：“把房子放大 / 选中笑脸”。
+  const preset = findPreset(seg);
+  if (preset) return { kind: 'group', preset };
   const shape = findShape(seg);
   const color = findColor(seg);
   if (color && (/的/.test(seg) || shape)) return { kind: 'byColor', color };

@@ -1,7 +1,9 @@
 // 图形对象模型 —— 引擎与渲染共用的最小数据结构。
 // 所有图形共享位置/颜色/描边等基础属性，再按类型携带专属字段。
 
-export type ShapeType = 'circle' | 'rect' | 'line' | 'arrow' | 'triangle' | 'text';
+export type ShapeType =
+  | 'circle' | 'rect' | 'line' | 'arrow' | 'triangle' | 'text'
+  | 'ellipse' | 'polygon' | 'star' | 'heart' | 'arc';
 
 export interface Shape {
   id: string;
@@ -19,14 +21,24 @@ export interface Shape {
   rotation: number;
 
   // —— 类型专属字段 ——
-  r?: number; // circle 半径
-  w?: number; // rect 宽
-  h?: number; // rect 高
+  r?: number; // circle/polygon/star/arc 半径（外接半径）
+  w?: number; // rect/ellipse 宽
+  h?: number; // rect/ellipse 高
   x2?: number; // line/arrow 终点
   y2?: number;
-  size?: number; // triangle 外接尺寸（底边长）
+  size?: number; // triangle/heart 外接尺寸
   text?: string; // text 内容
   fontSize?: number; // text 字号
+  sides?: number; // polygon 边数
+  points?: number; // star 角数
+  a0?: number; // arc 起始角（度）
+  a1?: number; // arc 终止角（度）
+
+  // —— 组合/语义绘图分组 ——
+  /** 同一次 compose 产出的图元共享此 id，使“房子/笑脸”可作为整体重选与变换。 */
+  groupId?: string;
+  /** 组的语义类型（预设名，如 'house'），用于“选中房子”这类按名重选。 */
+  groupKind?: string;
 }
 
 /** 各类型的默认尺寸/样式，便于“画一个圆”这类无参指令补全。 */
@@ -41,6 +53,14 @@ export const SHAPE_DEFAULTS = {
   lineLen: 140,
   triangleSize: 130,
   fontSize: 32,
+  ellipseW: 160,
+  ellipseH: 110,
+  polygonR: 70,
+  polygonSides: 6,
+  starR: 75,
+  starPoints: 5,
+  heartSize: 130,
+  arcR: 60,
 } as const;
 
 let idSeq = 0;
@@ -50,9 +70,17 @@ export function nextShapeId(): string {
   return `s${idSeq}`;
 }
 
+let groupSeq = 0;
+/** 生成稳定递增的分组 id（一次 compose 一个）。 */
+export function nextGroupId(): string {
+  groupSeq += 1;
+  return `g${groupSeq}`;
+}
+
 /** 仅供测试重置 id 序列。 */
 export function __resetIdSeq(): void {
   idSeq = 0;
+  groupSeq = 0;
 }
 
 /** 图形的轴对齐包围盒（忽略旋转，足够用于布局与命中粗判）。 */
@@ -93,6 +121,21 @@ export function getBounds(s: Shape): Bounds {
         maxX: Math.max(s.x, x2),
         maxY: Math.max(s.y, y2),
       };
+    }
+    case 'ellipse': {
+      const w = s.w ?? SHAPE_DEFAULTS.ellipseW;
+      const h = s.h ?? SHAPE_DEFAULTS.ellipseH;
+      return { minX: s.x - w / 2, minY: s.y - h / 2, maxX: s.x + w / 2, maxY: s.y + h / 2 };
+    }
+    case 'polygon':
+    case 'star':
+    case 'arc': {
+      const r = s.r ?? SHAPE_DEFAULTS.polygonR;
+      return { minX: s.x - r, minY: s.y - r, maxX: s.x + r, maxY: s.y + r };
+    }
+    case 'heart': {
+      const sz = s.size ?? SHAPE_DEFAULTS.heartSize;
+      return { minX: s.x - sz / 2, minY: s.y - sz / 2, maxX: s.x + sz / 2, maxY: s.y + sz / 2 };
     }
   }
 }

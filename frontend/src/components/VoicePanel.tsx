@@ -23,10 +23,10 @@ export function VoicePanel({ run, qiniuConfigured, ttsEnabled, onToggleTts }: Pr
         className={`voice__mic ${voice.listening ? 'is-listening' : ''}`}
         onClick={voice.toggle}
         disabled={!voice.available}
-        title={voice.available ? '点击开始/停止' : '当前环境不可用'}
+        title={voice.available ? '开始/暂停持续聆听' : '当前环境不可用'}
       >
         <span className="voice__dot" />
-        {voice.listening ? '停止聆听' : '点击说话'}
+        {voice.listening ? '聆听中…（开口即画）' : '开始聆听'}
       </button>
 
       <div className="voice__engines">
@@ -55,7 +55,9 @@ export function VoicePanel({ run, qiniuConfigured, ttsEnabled, onToggleTts }: Pr
           <span className="voice__partial">{voice.partial}</span>
         ) : (
           <span className="voice__idle">
-            {voice.listening ? '正在聆听…试试「画一个红色的圆」' : '点击麦克风，开口画图'}
+            {voice.listening
+              ? '持续聆听中，开口即画，无需点击；说「停止聆听」可暂停'
+              : '点击「开始聆听」，之后全程语音操作，无需鼠标键盘'}
           </span>
         )}
       </div>

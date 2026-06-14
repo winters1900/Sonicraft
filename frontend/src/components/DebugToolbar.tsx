@@ -1,5 +1,6 @@
 import type { CanvasEngine } from '../engine/CanvasEngine';
 import type { ShapeType } from '../engine/shapes';
+import { PRESETS } from '../executor/presets';
 
 // 仅用于开发期手动验证绘图引擎；正式语音链路接入后会从主界面移除。
 // 通过随机偏移放置图形，避免叠在同一处。
@@ -14,6 +15,8 @@ export function DebugToolbar({ engine }: { engine: CanvasEngine | null }) {
   const pick = () => colors[Math.floor(Math.random() * colors.length)];
 
   const addShapes: ShapeType[] = ['circle', 'rect', 'triangle', 'line', 'arrow', 'text'];
+  const newShapes: ShapeType[] = ['ellipse', 'polygon', 'star', 'heart', 'arc'];
+  const presetNames = Object.keys(PRESETS);
 
   return (
     <div className="debug-toolbar">
@@ -21,6 +24,17 @@ export function DebugToolbar({ engine }: { engine: CanvasEngine | null }) {
       {addShapes.map((t) => (
         <button key={t} onClick={() => engine.add(t, { ...rand(), color: pick() })}>
           +{t}
+        </button>
+      ))}
+      {newShapes.map((t) => (
+        <button key={t} onClick={() => engine.add(t, { ...rand(), color: pick(), fill: t !== 'arc' })}>
+          +{t}
+        </button>
+      ))}
+      <span className="debug-toolbar__sep" />
+      {presetNames.map((name) => (
+        <button key={name} onClick={() => engine.addMany(PRESETS[name](engine.width / 2, engine.height / 2, 1, ''))}>
+          ◈{name}
         </button>
       ))}
       <span className="debug-toolbar__sep" />

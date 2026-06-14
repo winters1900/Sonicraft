@@ -26,7 +26,8 @@ ttsRouter.post('/tts', async (req, res) => {
     const resp = await fetch(`${cfg.baseUrl}/voice/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-      body: JSON.stringify({ model: 'tts', input: text, voice: cfg.ttsVoice, encoding: 'mp3' }),
+      // 七牛 TTS 实测契约：audio.voice_type + request.text（不是 OpenAI 的 input/voice）。
+      body: JSON.stringify({ audio: { voice_type: cfg.ttsVoice, encoding: 'mp3' }, request: { text } }),
       signal: controller.signal,
     });
     if (!resp.ok) {

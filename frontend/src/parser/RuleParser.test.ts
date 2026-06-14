@@ -43,6 +43,71 @@ describe('创建类指令', () => {
   });
 });
 
+describe('新增形状', () => {
+  it('画一个五角星 → star，points=5', () => {
+    const c = first('画一个五角星') as CreateCommand;
+    expect(c.op).toBe('create');
+    expect(c.shape).toBe('star');
+    expect(c.props?.points).toBe(5);
+  });
+
+  it('画一个椭圆 → ellipse（不被“圆”误判为 circle）', () => {
+    const c = first('画一个椭圆') as CreateCommand;
+    expect(c.shape).toBe('ellipse');
+  });
+
+  it('画一个六边形 → polygon，sides=6，且不被当作 6 个', () => {
+    const c = first('画一个六边形') as CreateCommand;
+    expect(c.shape).toBe('polygon');
+    expect(c.props?.sides).toBe(6);
+    expect(c.count).toBeUndefined();
+  });
+
+  it('画一个半圆 → arc', () => {
+    const c = first('画一个半圆') as CreateCommand;
+    expect(c.shape).toBe('arc');
+  });
+
+  it('画一个爱心 → heart', () => {
+    const c = first('画一个爱心') as CreateCommand;
+    expect(c.shape).toBe('heart');
+  });
+});
+
+describe('组合/语义绘图', () => {
+  it('画一个笑脸 → compose face', () => {
+    const c = first('画一个笑脸') as { op: string; preset: string };
+    expect(c.op).toBe('compose');
+    expect(c.preset).toBe('face');
+  });
+
+  it('在右上角画一个大房子 → compose house + 方位 + 尺寸', () => {
+    const c = first('在右上角画一个大房子') as { op: string; preset: string; props: { position?: string; sizeScale?: number } };
+    expect(c.op).toBe('compose');
+    expect(c.preset).toBe('house');
+    expect(c.props.position).toBe('top-right');
+    expect(c.props.sizeScale).toBeGreaterThan(1);
+  });
+
+  it('画一朵红色的花 → compose flower 且主色透传', () => {
+    const c = first('画一朵红色的花') as { op: string; preset: string; props: { color?: string } };
+    expect(c.op).toBe('compose');
+    expect(c.preset).toBe('flower');
+    expect(resolveColor(c.props.color)).toBe('#e23b3b');
+  });
+
+  it('选中房子 → select group house', () => {
+    const c = first('选中房子');
+    expect(c).toEqual({ op: 'select', target: { kind: 'group', preset: 'house' } });
+  });
+
+  it('把笑脸放大 → scale，目标为 group face', () => {
+    const c = first('把笑脸放大') as { op: string; target: unknown };
+    expect(c.op).toBe('scale');
+    expect(c.target).toEqual({ kind: 'group', preset: 'face' });
+  });
+});
+
 describe('修改/变换类指令', () => {
   it('把它变成绿色 → recolor last', () => {
     const c = first('把它变成绿色') as { op: string; color: string; target: unknown };
@@ -71,6 +136,40 @@ describe('修改/变换类指令', () => {
     const c = first('把所有圆形变成黄色');
     expect(c.op).toBe('recolor');
     expect((c as { target: unknown }).target).toEqual({ kind: 'all' });
+  });
+});
+
+describe('口语样式与更多颜色', () => {
+  it('把它变粗 → style strokeWidth, 目标 last', () => {
+    const c = first('把它变粗') as { op: string; strokeWidth: number; target: unknown };
+    expect(c.op).toBe('style');
+    expect(c.strokeWidth).toBeGreaterThanOrEqual(6);
+    expect(c.target).toEqual({ kind: 'last' });
+  });
+
+  it('改成空心 → style fill=false', () => {
+    const c = first('改成空心') as { op: string; fill: boolean };
+    expect(c.op).toBe('style');
+    expect(c.fill).toBe(false);
+  });
+
+  it('变成实心 → style fill=true', () => {
+    const c = first('变成实心') as { op: string; fill: boolean };
+    expect(c.op).toBe('style');
+    expect(c.fill).toBe(true);
+  });
+
+  it('“把它变小”仍是缩放而非样式', () => {
+    expect(first('把它变小').op).toBe('scale');
+  });
+
+  it('具体色不被短色词遮蔽：深蓝/草绿/玫红', () => {
+    const a = first('画一个深蓝色的圆') as CreateCommand;
+    expect(resolveColor(a.props?.color)).toBe('#1f4fa8');
+    const b = first('画一个草绿色的方块') as CreateCommand;
+    expect(resolveColor(b.props?.color)).toBe('#5cb85c');
+    const c = first('画一个玫红色的圆') as CreateCommand;
+    expect(resolveColor(c.props?.color)).toBe('#e23b7a');
   });
 });
 
