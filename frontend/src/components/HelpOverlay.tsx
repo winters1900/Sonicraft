@@ -35,10 +35,9 @@ export function HelpOverlay({ onClose }: Props) {
       <div className="help__panel" onClick={(e) => e.stopPropagation()}>
         <div className="help__head">
           <h2>你可以这样说</h2>
-          <button onClick={onClose}>关闭</button>
         </div>
         <p className="help__sub">
-          高频几何指令走本地规则；任意物体走 Hugging Face 文生图并放入画布。
+          高频几何指令走本地规则；任意物体走 Hugging Face 文生图并放入画布。说「关闭帮助」或点击空白处退出。
         </p>
         <div className="help__grid">
           {GROUPS.map((g) => (

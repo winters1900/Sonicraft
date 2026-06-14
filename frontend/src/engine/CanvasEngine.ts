@@ -54,6 +54,15 @@ export class CanvasEngine {
     return this.canvas.height;
   }
 
+  resize(width: number, height: number): void {
+    const w = Math.max(1, Math.floor(width));
+    const h = Math.max(1, Math.floor(height));
+    if (this.canvas.width === w && this.canvas.height === h) return;
+    this.canvas.width = w;
+    this.canvas.height = h;
+    this.render();
+  }
+
   private emit(): void {
     const state = this.getState();
     this.listeners.forEach((fn) => fn(state));
