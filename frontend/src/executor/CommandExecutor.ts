@@ -6,11 +6,14 @@ import { resolveColor } from '@shared/colors';
 import {
   PRESET_LABEL,
   SHAPE_LABEL,
+  type BackgroundCommand,
   type ComposeCommand,
   type CreateCommand,
+  type Direction,
   type DrawCommand,
   type PositionHint,
   type SelectTarget,
+  type SwitchPageCommand,
 } from '@shared/commands';
 import { CanvasEngine } from '../engine/CanvasEngine';
 import { nextGroupId, SHAPE_DEFAULTS, type Shape, type ShapeType } from '../engine/shapes';
@@ -25,6 +28,18 @@ export interface ExecOutcome {
 }
 
 const DEFAULT_MOVE = 60;
+
+const POSITION_LABEL: Record<PositionHint, string> = {
+  center: '中间',
+  top: '上方',
+  bottom: '下方',
+  left: '左侧',
+  right: '右侧',
+  'top-left': '左上角',
+  'top-right': '右上角',
+  'bottom-left': '左下角',
+  'bottom-right': '右下角',
+};
 
 export class CommandExecutor {
   constructor(private engine: CanvasEngine) {}
@@ -75,6 +90,13 @@ export class CommandExecutor {
       case 'clear':
         this.engine.clear();
         return { ok: true, message: '已清空画布', command: cmd };
+      case 'background':
+        return this.setBackground(cmd);
+      case 'newPage':
+        this.engine.newPage();
+        return { ok: true, message: `已新建画布（第 ${this.engine.getState().pageCount} 张），原画布已保留`, command: cmd };
+      case 'switchPage':
+        return this.switchPage(cmd);
       case 'export':
         return this.exportPng(cmd);
       case 'unknown':
@@ -101,7 +123,7 @@ export class CommandExecutor {
         ...(props.text != null ? { text: props.text } : {}),
         ...(props.sides != null ? { sides: props.sides } : {}),
         ...(props.points != null ? { points: props.points } : {}),
-      }),
+      }, props.direction),
     }));
 
     this.engine.addMany(specs);
@@ -157,8 +179,8 @@ export class CommandExecutor {
     return { ok: true, message: `已画一个${PRESET_LABEL[cmd.preset] ?? cmd.preset}`, command: cmd };
   }
 
-  /** 按相对缩放系数算出该形状的实际尺寸属性。 */
-  private sizedProps(type: ShapeType, scale: number, extra: Partial<Shape>): Partial<Shape> {
+  /** 按相对缩放系数算出该形状的实际尺寸属性。direction 仅用于线/箭头朝向。 */
+  private sizedProps(type: ShapeType, scale: number, extra: Partial<Shape>, direction?: Direction): Partial<Shape> {
     const p: Partial<Shape> = { ...extra };
     switch (type) {
       case 'circle':
@@ -176,9 +198,14 @@ export class CommandExecutor {
         break;
       case 'line':
       case 'arrow':
-        if (p.x != null) {
-          p.x2 = p.x + SHAPE_DEFAULTS.lineLen * scale;
-          p.y2 = p.y;
+        if (p.x != null && p.y != null) {
+          const len = SHAPE_DEFAULTS.lineLen * scale;
+          // 默认水平向右；direction 指定时按朝向放置终点。
+          const dir = direction ?? 'right';
+          if (dir === 'left') { p.x2 = p.x - len; p.y2 = p.y; }
+          else if (dir === 'up') { p.x2 = p.x; p.y2 = p.y - len; }
+          else if (dir === 'down') { p.x2 = p.x; p.y2 = p.y + len; }
+          else { p.x2 = p.x + len; p.y2 = p.y; }
         }
         break;
       case 'ellipse':
@@ -282,7 +309,13 @@ export class CommandExecutor {
     if (!ids.length) return { ok: false, message: '请先选择要移动的图形', command: cmd };
     let dx = cmd.dx ?? 0;
     let dy = cmd.dy ?? 0;
-    if (cmd.direction) {
+    if (cmd.position) {
+      // 绝对定位：把目标整体中心搬到画布该方位处。
+      const center = this.engine.idsCenter(ids);
+      const dest = positionToXY(cmd.position, this.engine.width, this.engine.height);
+      dx = dest.x - center.x;
+      dy = dest.y - center.y;
+    } else if (cmd.direction) {
       const d = cmd.distance ?? DEFAULT_MOVE;
       if (cmd.direction === 'left') dx = -d;
       if (cmd.direction === 'right') dx = d;
@@ -290,7 +323,35 @@ export class CommandExecutor {
       if (cmd.direction === 'down') dy = d;
     }
     this.engine.move(dx, dy, ids);
-    return { ok: true, message: '已移动', command: cmd };
+    const where = cmd.position ? `到${POSITION_LABEL[cmd.position]}` : '';
+    return { ok: true, message: `已移动${where}`, command: cmd };
+  }
+
+  // —— 画布背景 ——
+  private setBackground(cmd: BackgroundCommand): ExecOutcome {
+    if (cmd.mode === 'clear') {
+      this.engine.clearBackground();
+      return { ok: true, message: '已恢复空白背景', command: cmd };
+    }
+    if (cmd.mode === 'color') {
+      const hex = resolveColor(cmd.color);
+      if (!hex) return { ok: false, message: `不认识的颜色：${cmd.color ?? ''}`, command: cmd };
+      this.engine.setBackgroundColor(hex);
+      return { ok: true, message: `已将背景改成${describeColor(cmd.color ?? '')}`, command: cmd };
+    }
+    // image 模式为异步文生图，由控制器处理（同 imagine）。
+    return { ok: false, message: '背景图片由控制器处理', command: cmd };
+  }
+
+  // —— 切换画布 ——
+  private switchPage(cmd: SwitchPageCommand): ExecOutcome {
+    const { pageCount, pageIndex } = this.engine.getState();
+    const target = cmd.index != null ? cmd.index - 1 : pageIndex + (cmd.delta ?? 0);
+    if (target < 0 || target >= pageCount) {
+      return { ok: false, message: `没有第 ${target + 1} 张画布（共 ${pageCount} 张）`, command: cmd };
+    }
+    this.engine.switchPage(target);
+    return { ok: true, message: `已切换到画布 ${target + 1}/${pageCount}`, command: cmd };
   }
 
   private scale(factor: number, target?: SelectTarget): ExecOutcome {

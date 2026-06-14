@@ -27,6 +27,8 @@ export interface ShapeProps {
   position?: PositionHint;
   sides?: number;
   points?: number;
+  /** 线/箭头朝向（创建时）。仅对 line/arrow 生效。 */
+  direction?: Direction;
 }
 
 export interface CreateCommand {
@@ -38,7 +40,8 @@ export interface CreateCommand {
 }
 
 export interface SelectCommand { op: 'select'; target: SelectTarget }
-export interface MoveCommand { op: 'move'; target?: SelectTarget; direction?: Direction; distance?: number; dx?: number; dy?: number }
+/** 移动：direction+distance 为相对位移；position 为移动到画布某绝对方位（如「移到左上角」）。 */
+export interface MoveCommand { op: 'move'; target?: SelectTarget; direction?: Direction; distance?: number; dx?: number; dy?: number; position?: PositionHint }
 export interface ScaleCommand { op: 'scale'; target?: SelectTarget; factor: number }
 export interface RotateCommand { op: 'rotate'; target?: SelectTarget; deg: number }
 export interface RecolorCommand { op: 'recolor'; target?: SelectTarget; color: string }
@@ -48,6 +51,19 @@ export interface UndoCommand { op: 'undo' }
 export interface RedoCommand { op: 'redo' }
 export interface ClearCommand { op: 'clear' }
 export interface ExportCommand { op: 'export' }
+
+/** 新建一张空白画布，保留之前画布的内容（多画布/分页）。 */
+export interface NewPageCommand { op: 'newPage' }
+/** 切换画布：index 为 1-based 绝对页码；delta 为相对（下一张 +1 / 上一张 -1）。 */
+export interface SwitchPageCommand { op: 'switchPage'; index?: number; delta?: number }
+
+/**
+ * 画布背景：
+ *  - color：纯色背景（如「背景改成蓝色」）
+ *  - image：AI 文生图作为背景（如「背景改成山林」，异步，由控制器处理）
+ *  - clear：恢复空白背景
+ */
+export interface BackgroundCommand { op: 'background'; mode: 'color' | 'image' | 'clear'; color?: string; prompt?: string }
 
 export interface ComposeCommand {
   op: 'compose';
@@ -78,6 +94,9 @@ export type DrawCommand =
   | RedoCommand
   | ClearCommand
   | ExportCommand
+  | NewPageCommand
+  | SwitchPageCommand
+  | BackgroundCommand
   | UnknownCommand;
 
 export const SHAPE_NAMES: ShapeName[] = [
@@ -141,6 +160,11 @@ export function isValidCommand(c: unknown): c is DrawCommand {
       return validStyle(c as StyleCommand);
     case 'delete':
       return validTarget((c as DeleteCommand).target);
+    case 'background':
+      return validBackground(c as BackgroundCommand);
+    case 'switchPage':
+      return validSwitchPage(c as SwitchPageCommand);
+    case 'newPage':
     case 'undo':
     case 'redo':
     case 'clear':
@@ -180,8 +204,22 @@ function validMove(c: MoveCommand): boolean {
   if (!validTarget(c.target)) return false;
   if (c.direction != null && !DIRECTIONS.includes(c.direction)) return false;
   if (c.distance != null && !finiteIn(c.distance, 1, 5000)) return false;
+  if (c.position != null && !POSITIONS.includes(c.position)) return false;
   if (c.dx != null && !finiteIn(c.dx, -5000, 5000)) return false;
   return c.dy == null || finiteIn(c.dy, -5000, 5000);
+}
+
+function validBackground(c: BackgroundCommand): boolean {
+  if (c.mode === 'clear') return true;
+  if (c.mode === 'color') return validColor(c.color);
+  if (c.mode === 'image') return typeof c.prompt === 'string' && c.prompt.trim().length > 0;
+  return false;
+}
+
+function validSwitchPage(c: SwitchPageCommand): boolean {
+  if (c.index != null && !integerIn(c.index, 1, 50)) return false;
+  if (c.delta != null && !(c.delta === 1 || c.delta === -1)) return false;
+  return c.index != null || c.delta != null;
 }
 
 function validStyle(c: StyleCommand): boolean {
@@ -199,6 +237,7 @@ function validProps(props: ShapeProps | undefined): boolean {
   if (props.position != null && !POSITIONS.includes(props.position)) return false;
   if (props.sides != null && !integerIn(props.sides, 3, 20)) return false;
   if (props.points != null && !integerIn(props.points, 3, 20)) return false;
+  if (props.direction != null && !DIRECTIONS.includes(props.direction)) return false;
   return props.text == null || typeof props.text === 'string';
 }
 

@@ -4,9 +4,25 @@
 
 import { getBounds, hitTest, nextShapeId, SHAPE_DEFAULTS, type Shape, type ShapeType } from './shapes';
 
-export interface EngineState {
+/** 画布背景：纯色或一张铺满的图片（dataURL，AI 文生图产出）。 */
+export interface CanvasBackground {
+  type: 'color' | 'image';
+  value: string;
+}
+
+/** 单张画布的可序列化状态（用于历史快照与多画布存储）。 */
+export interface PageSnapshot {
   shapes: Shape[];
   selectedIds: string[];
+  background: CanvasBackground | null;
+}
+
+/** UI 可见状态：在单页快照之外，附带多画布元信息。 */
+export interface EngineState extends PageSnapshot {
+  /** 画布总数（多画布）。 */
+  pageCount: number;
+  /** 当前画布序号（0-based）。 */
+  pageIndex: number;
 }
 
 type Listener = (state: EngineState) => void;
@@ -18,17 +34,22 @@ export class CanvasEngine {
   private ctx: CanvasRenderingContext2D;
   private shapes: Shape[] = [];
   private selectedIds = new Set<string>();
-  private undoStack: EngineState[] = [];
-  private redoStack: EngineState[] = [];
+  private background: CanvasBackground | null = null;
+  private undoStack: PageSnapshot[] = [];
+  private redoStack: PageSnapshot[] = [];
   private listeners = new Set<Listener>();
   /** image 图元的图片元素缓存（按 src）；加载完成后触发重绘。 */
   private imageCache = new Map<string, HTMLImageElement>();
+  /** 多画布：每个槽位存一张画布的快照；当前画布另以 live 字段实时呈现。 */
+  private pages: PageSnapshot[] = [];
+  private pageIndex = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('无法获取 2D 渲染上下文');
     this.ctx = ctx;
+    this.pages = [this.snapshot()]; // 初始一张空白画布
     this.render();
   }
 
@@ -39,10 +60,10 @@ export class CanvasEngine {
   }
 
   getState(): EngineState {
-    return { shapes: this.shapes.map((s) => ({ ...s })), selectedIds: [...this.selectedIds] };
+    return { ...this.snapshot(), pageCount: this.pages.length, pageIndex: this.pageIndex };
   }
 
-  replaceState(state: EngineState): void {
+  replaceState(state: PageSnapshot): void {
     this.restore(state);
     this.emit();
   }
@@ -70,8 +91,12 @@ export class CanvasEngine {
   }
 
   // —— 历史 ——
-  private snapshot(): EngineState {
-    return { shapes: this.shapes.map((s) => ({ ...s })), selectedIds: [...this.selectedIds] };
+  private snapshot(): PageSnapshot {
+    return {
+      shapes: this.shapes.map((s) => ({ ...s })),
+      selectedIds: [...this.selectedIds],
+      background: this.background,
+    };
   }
 
   /** 在任何改变图形/选区的操作前调用，记录可撤销点。 */
@@ -81,9 +106,10 @@ export class CanvasEngine {
     this.redoStack = [];
   }
 
-  private restore(state: EngineState): void {
+  private restore(state: PageSnapshot): void {
     this.shapes = state.shapes.map((s) => ({ ...s }));
     this.selectedIds = new Set(state.selectedIds);
+    this.background = state.background ?? null;
   }
 
   undo(): boolean {
@@ -285,6 +311,11 @@ export class CanvasEngine {
     return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
   }
 
+  /** 目标集合的整体包围盒中心（公开，供执行器做“移动到某方位”的位移换算）。 */
+  idsCenter(ids: string[]): { x: number; y: number } {
+    return this.centerOf(ids);
+  }
+
   rotate(deg: number, ids?: string[]): void {
     const targets = this.resolveIds(ids);
     if (!targets.length) return;
@@ -331,6 +362,51 @@ export class CanvasEngine {
     this.emit();
   }
 
+  // —— 背景 ——
+  setBackgroundColor(color: string): void {
+    this.commit();
+    this.background = { type: 'color', value: color };
+    this.emit();
+  }
+
+  setBackgroundImage(src: string): void {
+    this.commit();
+    this.background = { type: 'image', value: src };
+    this.emit();
+  }
+
+  clearBackground(): void {
+    if (!this.background) return;
+    this.commit();
+    this.background = null;
+    this.emit();
+  }
+
+  // —— 多画布 ——
+  /** 新建一张空白画布并切换过去；当前画布内容保留在原槽位。 */
+  newPage(): void {
+    this.pages[this.pageIndex] = this.snapshot();
+    const blank: PageSnapshot = { shapes: [], selectedIds: [], background: null };
+    this.pages.push(blank);
+    this.pageIndex = this.pages.length - 1;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.restore(blank);
+    this.emit();
+  }
+
+  /** 切换到第 index 张画布（0-based）；越界或同页返回 false。 */
+  switchPage(index: number): boolean {
+    if (index < 0 || index >= this.pages.length || index === this.pageIndex) return false;
+    this.pages[this.pageIndex] = this.snapshot();
+    this.pageIndex = index;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.restore(this.pages[index]);
+    this.emit();
+    return true;
+  }
+
   private applyTo(ids: string[], fn: (s: Shape) => void): void {
     const set = new Set(ids);
     this.shapes.forEach((s) => {
@@ -355,13 +431,38 @@ export class CanvasEngine {
   render(): void {
     const { ctx, canvas } = this;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    this.drawBackground();
     for (const s of this.shapes) this.drawShape(s);
     for (const id of this.selectedIds) {
       const s = this.shapes.find((x) => x.id === id);
       if (s) this.drawSelection(s);
     }
+  }
+
+  /** 画布背景：纯色填充或铺满的背景图（cover 适配）；图片未就绪时退回白底。 */
+  private drawBackground(): void {
+    const { ctx, canvas } = this;
+    const bg = this.background;
+    if (bg?.type === 'color') {
+      ctx.fillStyle = bg.value;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    if (bg?.type === 'image') {
+      const img = this.getImage(bg.value);
+      if (img && img.complete && img.naturalWidth > 0) {
+        const cw = canvas.width;
+        const ch = canvas.height;
+        const scale = Math.max(cw / img.naturalWidth, ch / img.naturalHeight);
+        const dw = img.naturalWidth * scale;
+        const dh = img.naturalHeight * scale;
+        ctx.drawImage(img, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+        return;
+      }
+      // 加载中：先白底，onload 后会自动重绘
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
   private drawShape(s: Shape): void {

@@ -215,6 +215,88 @@ describe('指代与变换', () => {
   });
 });
 
+describe('移动到绝对方位 / 箭头朝向', () => {
+  it('move position：把图形整体中心搬到左上角锚点 (0.25W,0.25H)', () => {
+    const { engine, exec } = setup(); // 960x600
+    exec.execute({ op: 'create', shape: 'circle' });
+    exec.execute({ op: 'move', position: 'top-left' });
+    const s = engine.getState().shapes[0];
+    expect(s.x).toBeCloseTo(960 * 0.25, 0);
+    expect(s.y).toBeCloseTo(600 * 0.25, 0);
+  });
+
+  it('arrow direction up：终点在锚点正上方 (y2 < y, x2 == x)', () => {
+    const { engine, exec } = setup();
+    exec.execute({ op: 'create', shape: 'arrow', props: { direction: 'up' } });
+    const a = engine.getState().shapes[0];
+    expect(a.x2).toBeCloseTo(a.x, 5);
+    expect(a.y2!).toBeLessThan(a.y);
+  });
+
+  it('arrow 默认水平向右（无 direction）', () => {
+    const { engine, exec } = setup();
+    exec.execute({ op: 'create', shape: 'arrow' });
+    const a = engine.getState().shapes[0];
+    expect(a.x2!).toBeGreaterThan(a.x);
+    expect(a.y2).toBeCloseTo(a.y, 5);
+  });
+});
+
+describe('画布背景', () => {
+  it('纯色背景写入引擎状态', () => {
+    const { engine, exec } = setup();
+    const r = exec.execute({ op: 'background', mode: 'color', color: '蓝色' });
+    expect(r.ok).toBe(true);
+    expect(engine.getState().background).toEqual({ type: 'color', value: '#2f7be2' });
+  });
+
+  it('清除背景恢复空白', () => {
+    const { engine, exec } = setup();
+    exec.execute({ op: 'background', mode: 'color', color: '红色' });
+    exec.execute({ op: 'background', mode: 'clear' });
+    expect(engine.getState().background).toBeNull();
+  });
+
+  it('image 模式不在执行器同步落地（交由控制器异步处理）', () => {
+    const { exec } = setup();
+    const r = exec.execute({ op: 'background', mode: 'image', prompt: '山林' });
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('多画布（保留旧画布内容）', () => {
+  it('新建画布：当前内容保留在旧页，新页为空，可切回', () => {
+    const { engine, exec } = setup();
+    exec.execute({ op: 'create', shape: 'circle' });
+    exec.execute({ op: 'newPage' });
+    let st = engine.getState();
+    expect(st.pageCount).toBe(2);
+    expect(st.pageIndex).toBe(1);
+    expect(st.shapes).toHaveLength(0); // 新画布空白
+    exec.execute({ op: 'create', shape: 'rect' }); // 新页作画
+    exec.execute({ op: 'switchPage', index: 1 }); // 切回第 1 张
+    st = engine.getState();
+    expect(st.pageIndex).toBe(0);
+    expect(st.shapes).toHaveLength(1);
+    expect(st.shapes[0].type).toBe('circle'); // 旧内容仍在
+  });
+
+  it('切换越界返回失败', () => {
+    const { exec } = setup();
+    const r = exec.execute({ op: 'switchPage', index: 5 });
+    expect(r.ok).toBe(false);
+  });
+
+  it('背景随画布独立保存', () => {
+    const { engine, exec } = setup();
+    exec.execute({ op: 'background', mode: 'color', color: '蓝色' });
+    exec.execute({ op: 'newPage' });
+    expect(engine.getState().background).toBeNull(); // 新画布无背景
+    exec.execute({ op: 'switchPage', index: 1 });
+    expect(engine.getState().background).toEqual({ type: 'color', value: '#2f7be2' });
+  });
+});
+
 describe('全局命令与容错', () => {
   it('undo/redo 往返', () => {
     const { engine, exec } = setup();

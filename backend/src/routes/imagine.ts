@@ -13,6 +13,11 @@ const AGENT = PROXY ? new SocksProxyAgent(PROXY) : undefined;
 console.log('[sonicraft] imagine endpoint:', ENDPOINT_URL, '| socks proxy:', PROXY || 'none (direct)');
 const MAX_PROMPT = 240;
 
+// 抠图（背景移除）模型：把前景物体从自带影棚底里抠出来，使其能自然合成到画布背景上。
+export const hfCutoutModel = process.env.HF_CUTOUT_MODEL ?? 'briaai/RMBG-1.4';
+const CUTOUT_URL = process.env.HF_CUTOUT_URL || `https://router.huggingface.co/hf-inference/models/${hfCutoutModel}`;
+const MAX_IMAGE_BYTES = Number(process.env.CUTOUT_MAX_BYTES ?? 6_000_000);
+
 export function hasHfToken(): boolean {
   return Boolean(process.env.HF_TOKEN);
 }
@@ -47,9 +52,125 @@ imagineRouter.post('/imagine', async (req, res) => {
   }
 });
 
+// —— 抠图：移除前景图片自带背景，返回掩码（前端据此合成透明 PNG）——
+imagineRouter.post('/cutout', async (req, res) => {
+  const token = process.env.HF_TOKEN ?? '';
+  if (!token) {
+    res.status(503).json({ error: '后端未配置 HF_TOKEN，无法抠图' });
+    return;
+  }
+  const raw = typeof req.body?.image === 'string' ? req.body.image : '';
+  const b64 = raw.replace(/^data:image\/\w+;base64,/, '').trim();
+  if (!b64) {
+    res.status(400).json({ error: '缺少 image 字段（base64 PNG）' });
+    return;
+  }
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(b64, 'base64');
+  } catch {
+    res.status(400).json({ error: 'image 不是合法 base64' });
+    return;
+  }
+  if (!buf.length || buf.length > MAX_IMAGE_BYTES) {
+    res.status(400).json({ error: '图片为空或过大' });
+    return;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const result = await fetchCutoutHttps(buf, token, controller.signal);
+    if (result.kind === 'cutout') res.json({ cutout: result.data }); // 已是透明 PNG
+    else res.json({ mask: result.data }); // 灰度掩码，前端合成
+  } catch (err) {
+    const aborted = err instanceof Error && err.name === 'AbortError';
+    const detail = err instanceof Error ? err.message : String(err);
+    if (!aborted) console.error('[sonicraft] cutout error:', detail);
+    res.status(aborted ? 504 : 502).json({ error: aborted ? '抠图超时' : `抠图调用失败：${detail}` });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 function parsePrompt(input: unknown): string {
   if (typeof input !== 'string') return '';
   return input.trim().slice(0, MAX_PROMPT);
+}
+
+/**
+ * 调 HF 背景移除模型。两种返回都兼容：
+ *  - JSON（image-segmentation）：[{ label, mask(base64) }] → 取前景掩码（kind:'mask'）
+ *  - 直接 PNG（部分背景移除端点直出透明图）→ kind:'cutout'
+ */
+function fetchCutoutHttps(
+  image: Buffer,
+  token: string,
+  signal: AbortSignal,
+): Promise<{ kind: 'mask' | 'cutout'; data: string }> {
+  const url = new URL(CUTOUT_URL);
+  return new Promise((resolve, reject) => {
+    const request = https.request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'image/png',
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'x-wait-for-model': 'true',
+        'Content-Length': image.length,
+      },
+      ...(AGENT ? { agent: AGENT, rejectUnauthorized: false } : {}),
+      timeout: TIMEOUT_MS,
+      signal,
+    }, (resp) => {
+      const chunks: Buffer[] = [];
+      resp.on('data', (chunk: Buffer) => chunks.push(chunk));
+      resp.on('end', () => {
+        const status = resp.statusCode ?? 502;
+        const buf = Buffer.concat(chunks);
+        if (status >= 400) {
+          reject(new Error(`HF cutout HTTP ${status}: ${buf.toString().slice(0, 300)}`));
+          return;
+        }
+        const contentType = String(resp.headers['content-type'] ?? '');
+        if (contentType.includes('image/')) {
+          resolve({ kind: 'cutout', data: buf.toString('base64') });
+          return;
+        }
+        try {
+          const data = JSON.parse(buf.toString());
+          const mask = extractMask(data);
+          if (mask) resolve({ kind: 'mask', data: mask });
+          else reject(new Error('抠图未返回掩码'));
+        } catch (e) {
+          reject(e instanceof Error ? e : new Error(String(e)));
+        }
+      });
+      resp.on('error', reject);
+    });
+
+    request.on('error', reject);
+    request.on('timeout', () => {
+      request.destroy();
+      reject(new Error('Request timeout'));
+    });
+    request.write(image);
+    request.end();
+  });
+}
+
+/** 从 image-segmentation 响应里取前景掩码（base64 PNG，白=前景）。 */
+function extractMask(data: unknown): string {
+  if (!Array.isArray(data)) {
+    const single = data as { mask?: string };
+    return typeof single?.mask === 'string' ? single.mask : '';
+  }
+  // 优先 label 像“前景/主体”的项；否则取首个带 mask 的项。
+  const fg = data.find((d) => /foreground|subject|object/i.test(String(d?.label ?? '')) && d?.mask);
+  const any = data.find((d) => typeof d?.mask === 'string');
+  return String((fg ?? any)?.mask ?? '');
 }
 
 function fetchImageHttps(prompt: string, token: string, signal: AbortSignal): Promise<{ statusCode: number; headers: Record<string, string | string[] | undefined>; body: () => Promise<Buffer> }> {

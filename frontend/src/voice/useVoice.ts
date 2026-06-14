@@ -2,7 +2,6 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import type { EngineKind, VoiceEngine } from './types';
 import { WebSpeechEngine } from './WebSpeechEngine';
 import { matchVoiceControl, type VoiceControl } from './voiceControl';
-import { isTtsActive } from './ttsGate';
 
 interface UseVoiceOptions {
   onFinal: (text: string) => void;
@@ -11,7 +10,7 @@ interface UseVoiceOptions {
 
 /**
  * 语音输入管理：持续聆听、实时字幕、错误。
- * 引擎为浏览器原生 Web Speech（唯一）；先拦截“停止聆听/帮助/反馈”等元控制口令。
+ * 引擎为浏览器原生 Web Speech（唯一）；先拦截“停止聆听/帮助”等元控制口令。
  */
 export function useVoice({ onFinal, onControl }: UseVoiceOptions) {
   const engines = useMemo(
@@ -34,15 +33,10 @@ export function useVoice({ onFinal, onControl }: UseVoiceOptions) {
     setPartial('');
     await engine.start({
       onPartial: (t) => {
-        if (isTtsActive()) return; // 回声抑制：TTS 播报期间忽略字幕
         setError('');
         setPartial(t);
       },
       onFinal: (text) => {
-        if (isTtsActive()) {
-          setPartial('');
-          return;
-        }
         setError('');
         setPartial('');
         const control = matchVoiceControl(text);

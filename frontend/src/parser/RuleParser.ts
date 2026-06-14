@@ -4,6 +4,7 @@
 
 import { COLOR_KEYWORDS } from '@shared/colors';
 import type {
+  Direction,
   DrawCommand,
   Layout,
   PositionHint,
@@ -90,6 +91,7 @@ export function parseWithRules(input: string): RuleParseResult {
 
 function parseSegment(seg: string): DrawCommand | null {
   return (
+    matchBackground(seg) ?? // 先于全局：避免“清除/恢复背景”被当成清空画布/重做
     matchGlobal(seg) ??
     matchDelete(seg) ??
     matchRecolor(seg) ??
@@ -105,12 +107,48 @@ function parseSegment(seg: string): DrawCommand | null {
 
 // —— 全局命令 ——
 function matchGlobal(seg: string): DrawCommand | null {
+  // 多画布优先于“清空/恢复”等词，避免“新建画布/切换画布”被误判。
+  if (/新建画布|新画布|新的画布|新建一?张?画布|新增画布|加一?张?画布|新建页面|新页面|开新画布/.test(seg)) {
+    return { op: 'newPage' };
+  }
+  // 切换到第 N 张：容忍识别变体（缺“到”、阿拉伯数字、无动词的「第二张画布」）。
+  // 触发条件：句中提到画布/页面，或带明确的切换动词，避免误吞“选中第二个圆”。
+  if (/画布|页面/.test(seg) || /切换|切到|切去|翻到|跳到|转到/.test(seg)) {
+    const pageIdx = seg.match(/第\s*([零一两二三四五六七八九十\d]+)\s*[张页个]?/);
+    if (pageIdx) {
+      const n = /\d/.test(pageIdx[1]) ? Number(pageIdx[1]) : CN_NUM[pageIdx[1]];
+      if (n) return { op: 'switchPage', index: n };
+    }
+  }
+  // 上/下一张：要求带“张/页”量词，独立成立（“下一张”“切到下一页”）。
+  if (/(?:下一|后一|往后)\s*(?:张|页)|下一张画布/.test(seg)) return { op: 'switchPage', delta: 1 };
+  if (/(?:上一|前一|往前)\s*(?:张|页)|上一张画布/.test(seg)) return { op: 'switchPage', delta: -1 };
+
   if (/撤销|撤回|回退|后退|上一步/.test(seg)) return { op: 'undo' };
   if (/重做|恢复|前进/.test(seg)) return { op: 'redo' };
   if (/清空|清屏|清除|全部删除|删光|重置|重来/.test(seg)) return { op: 'clear' };
   if (/导出|保存|下载图片|另存/.test(seg)) return { op: 'export' };
   if (/全选|选中全部|选所有/.test(seg)) return { op: 'select', target: { kind: 'all' } };
   return null;
+}
+
+// —— 画布背景 ——
+// “背景改成蓝色”→纯色；“背景改成山林”→AI 文生图当背景；“去掉背景”→恢复空白。
+function matchBackground(seg: string): DrawCommand | null {
+  if (!/背景|底色|底图/.test(seg)) return null;
+  if (/去掉|去除|清除|取消|不要|删掉|删除|恢复|重置|清空/.test(seg)) {
+    return { op: 'background', mode: 'clear' };
+  }
+  if (!/改|换|设|变|弄|做|成|当作|作为/.test(seg)) return null; // 需有“改成/换成/设为”等意图
+  const color = findColor(seg);
+  if (color) return { op: 'background', mode: 'color', color };
+  const prompt = seg
+    .replace(/背景|底色|底图/g, '')
+    .replace(/(改成|改为|换成|换为|设为|设成|变成|弄成|当作|作为|改|换|设|变|弄|做|成|把|的|一[张幅个]?|图片|图像|照片|图)/g, '')
+    .replace(/[，,。.!！?？、\s]/g, '')
+    .trim();
+  if (prompt.length < 1 || prompt.length > 24) return null;
+  return { op: 'background', mode: 'image', prompt };
 }
 
 // —— 删除 ——
@@ -175,7 +213,16 @@ function matchRotate(seg: string): DrawCommand | null {
 
 // —— 移动 ——
 function matchMove(seg: string): DrawCommand | null {
-  if (!/移动|移到|挪|往|向(?:左|右|上|下)/.test(seg)) return null;
+  if (!/移动|移到|移至|挪|往|放到|放在|向(?:左|右|上|下)/.test(seg)) return null;
+  // 绘制意图优先：“画一个向上的箭头”不是移动（其中的“向上”是朝向，交给创建处理）。
+  if (/画|绘|写|生成/.test(seg) && !/移动|移到|移至|挪|放到|放在/.test(seg)) return null;
+
+  // 绝对定位：“移到/放到 + 方位（左上角/中间…）”→ 移动到画布该处，而非小幅平移。
+  const position = findPosition(seg);
+  if (position && /移到|移至|挪到|挪至|放到|放在|移动到|挪动到|拖到|移过去|到/.test(seg)) {
+    return { op: 'move', position, target: detectTarget(seg) };
+  }
+
   const dist = seg.match(/(\d+)\s*(?:像素|px|点)?/);
   const distance = dist ? Number(dist[1]) : undefined;
   let direction: 'up' | 'down' | 'left' | 'right' | undefined;
@@ -227,7 +274,7 @@ function matchCreate(seg: string): DrawCommand | null {
   const fill = findFill(seg);
 
   const p: {
-    color?: string; sizeScale?: number; position?: PositionHint; fill?: boolean; sides?: number; points?: number;
+    color?: string; sizeScale?: number; position?: PositionHint; fill?: boolean; sides?: number; points?: number; direction?: Direction;
   } = {};
   if (color) p.color = color;
   if (sizeScale) p.sizeScale = sizeScale;
@@ -240,6 +287,10 @@ function matchCreate(seg: string): DrawCommand | null {
   if (shape === 'star') {
     const pts = findStarPoints(seg);
     if (pts) p.points = pts;
+  }
+  if (shape === 'arrow' || shape === 'line') {
+    const dir = findArrowDirection(seg);
+    if (dir) p.direction = dir;
   }
 
   // findCount 需带量词（个/条…）才计数，故“五边形/六角星”里的数字不会被误当数量。
@@ -259,6 +310,7 @@ function findPreset(seg: string): string | null {
 
 /** 非图形/预设但有绘制意图 → AI 文生图。提取物体短语作为提示词。 */
 function buildImagine(seg: string): DrawCommand | null {
+  if (/画布|页面/.test(seg)) return null; // “切换/新建画布”含“画”，但不是文生图
   if (!/画|绘|生成|做一?[个张幅只]|来一?[个张幅只]/.test(seg)) return null; // 必须有绘制意图
   const position = findPosition(seg);
   const sizeScale = findSize(seg);
@@ -266,8 +318,9 @@ function buildImagine(seg: string): DrawCommand | null {
     .replace(/(画出来|画一下|画|绘制|绘|生成|做|来)/g, '')
     .replace(/[一二两三四五六七八九十\d]+\s*(个|只|张|幅|条|匹|头|朵|棵|片|辆|架|杯|座|位)/g, '')
     .replace(/^(一)?(个|只|张|幅|条|匹|头|朵|棵|片|辆|架|杯|座|位)/, '')
-    .replace(/(左上角|右上角|左下角|右下角|左上|右上|左下|右下|上面|上方|顶部|下面|下方|底部|左边|左侧|右边|右侧|中间|中央|正中|居中)/g, '')
+    .replace(/(左上角|右上角|左下角|右下角|左上|右上|左下|右下|上面|上方|顶部|下面|下方|底部|左边|左侧|右边|右侧|中间|中央|正中|居中|天上|天空|空中|高空)/g, '')
     .replace(/的?(图片|图像|照片|图)$/g, '')
+    .replace(/^在/, '')
     .replace(/[，,。.!！?？、]/g, '')
     .trim();
   if (prompt.length < 1 || prompt.length > 24) return null;
@@ -390,11 +443,20 @@ function findPosition(seg: string): PositionHint | undefined {
   if (/右上/.test(seg)) return 'top-right';
   if (/左下/.test(seg)) return 'bottom-left';
   if (/右下/.test(seg)) return 'bottom-right';
-  if (/上面|上方|顶部|最上/.test(seg)) return 'top';
+  if (/上面|上方|顶部|最上|天上|天空|空中|高空/.test(seg)) return 'top';
   if (/下面|下方|底部|最下/.test(seg)) return 'bottom';
   if (/左边|左侧|靠左/.test(seg)) return 'left';
   if (/右边|右侧|靠右|旁边|边上/.test(seg)) return 'right';
   if (/中间|中央|正中|居中/.test(seg)) return 'center';
+  return undefined;
+}
+
+/** 线/箭头朝向：“向上的箭头”→up。默认水平向右（undefined）。 */
+function findArrowDirection(seg: string): Direction | undefined {
+  if (/向上|朝上|往上|竖直向上|↑/.test(seg)) return 'up';
+  if (/向下|朝下|往下|竖直向下|↓/.test(seg)) return 'down';
+  if (/向左|朝左|往左|←/.test(seg)) return 'left';
+  if (/向右|朝右|往右|→/.test(seg)) return 'right';
   return undefined;
 }
 

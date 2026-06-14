@@ -25,6 +25,8 @@ describe('输入归一化（容错）', () => {
 describe('语音元控制口令', () => {
   it('识别停止类口令', () => {
     expect(matchVoiceControl('停止聆听')).toEqual({ type: 'stop' });
+    expect(matchVoiceControl('停止识别')).toEqual({ type: 'stop' });
+    expect(matchVoiceControl('关闭识别')).toEqual({ type: 'stop' });
     expect(matchVoiceControl('暂停识别')).toEqual({ type: 'stop' });
     expect(matchVoiceControl('别听了')).toEqual({ type: 'stop' });
     expect(matchVoiceControl('结束聆听')).toEqual({ type: 'stop' });
@@ -39,7 +41,5 @@ describe('语音元控制口令', () => {
     expect(matchVoiceControl('开始聆听')).toEqual({ type: 'start' });
     expect(matchVoiceControl('打开帮助')).toEqual({ type: 'helpOpen' });
     expect(matchVoiceControl('关闭帮助')).toEqual({ type: 'helpClose' });
-    expect(matchVoiceControl('关闭反馈')).toEqual({ type: 'toggleTts', enabled: false });
-    expect(matchVoiceControl('开启反馈')).toEqual({ type: 'toggleTts', enabled: true });
   });
 });

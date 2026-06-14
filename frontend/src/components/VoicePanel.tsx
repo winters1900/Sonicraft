@@ -3,11 +3,10 @@ import type { VoiceControl } from '../voice/voiceControl';
 
 interface Props {
   run: (text: string, via?: 'text' | 'voice') => Promise<string>;
-  ttsEnabled: boolean;
   onVoiceControl: (control: VoiceControl) => void;
 }
 
-export function VoicePanel({ run, ttsEnabled, onVoiceControl }: Props) {
+export function VoicePanel({ run, onVoiceControl }: Props) {
   const voice = useVoice({
     onControl: onVoiceControl,
     onFinal: (t) => void run(t, 'voice'),
@@ -34,9 +33,6 @@ export function VoicePanel({ run, ttsEnabled, onVoiceControl }: Props) {
       <div className="voice__meta">
         <span className={`voice__pill ${voice.listening ? 'is-live' : ''}`}>
           {voice.listening ? 'LIVE' : 'IDLE'}
-        </span>
-        <span className={`voice__pill ${ttsEnabled ? 'is-on' : ''}`}>
-          反馈 {ttsEnabled ? '开' : '关'}
         </span>
       </div>
 

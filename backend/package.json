@@ -8,6 +8,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
     "start": "tsx --import dotenv/config src/server.ts",
+    "fetch-models": "node scripts/fetch-rmbg.mjs",
     "test": "tsx --import dotenv/config --test src/**/*.test.ts"
   },
   "dependencies": {

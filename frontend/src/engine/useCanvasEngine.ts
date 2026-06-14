@@ -10,7 +10,13 @@ export function useCanvasEngine() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<CanvasEngine | null>(null);
-  const [state, setState] = useState<EngineState>({ shapes: [], selectedIds: [] });
+  const [state, setState] = useState<EngineState>({
+    shapes: [],
+    selectedIds: [],
+    background: null,
+    pageCount: 1,
+    pageIndex: 0,
+  });
 
   useEffect(() => {
     const canvas = canvasRef.current;

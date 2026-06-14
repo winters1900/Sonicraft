@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useCanvasEngine } from '../engine/useCanvasEngine';
 import { useDrawController } from '../controller/useDrawController';
-import { useSpeech } from '../voice/useSpeech';
 import { CommandConsole } from '../components/CommandConsole';
 import { CanvasTips } from '../components/CanvasTips';
 import { VoicePanel } from '../components/VoicePanel';
@@ -18,14 +17,12 @@ interface HealthState {
 export default function StudioApp() {
   const { wrapRef, canvasRef, engine, state } = useCanvasEngine();
   const [health, setHealth] = useState<HealthState | null>(null);
-  const speech = useSpeech();
-  const { run, log } = useDrawController(engine.current, speech.speakFeedback);
+  const { run, log } = useDrawController(engine.current);
   const [showHelp, setShowHelp] = useState(false);
 
   const handleVoiceControl = (control: VoiceControl) => {
     if (control.type === 'helpOpen') setShowHelp(true);
     if (control.type === 'helpClose') setShowHelp(false);
-    if (control.type === 'toggleTts') speech.setFeedbackEnabled(control.enabled);
   };
 
   useEffect(() => {
@@ -60,6 +57,25 @@ export default function StudioApp() {
       <header className="app__header">
         <a className="app__home-link font-firs" href="/">sonicraft</a>
         <div className="app__header-meta">
+          <div className="app__pages" role="tablist" aria-label="画布">
+            {Array.from({ length: state.pageCount }).map((_, i) => (
+              <button
+                key={i}
+                className={`app__page ${i === state.pageIndex ? 'is-active' : ''}`}
+                onClick={() => engine.current?.switchPage(i)}
+                title={`切换到画布 ${i + 1}`}
+              >
+                {i + 1}
+              </button>
+            ))}
+            <button
+              className="app__page app__page--add"
+              onClick={() => engine.current?.newPage()}
+              title="新建画布（保留当前内容）"
+            >
+              ＋
+            </button>
+          </div>
           <span className={backendChipClass}>{backendLabel}</span>
           <span className="app__chip">图 {state.shapes.length}</span>
           {state.selectedIds.length > 0 && (
@@ -85,7 +101,6 @@ export default function StudioApp() {
         <aside className="app__side">
           <VoicePanel
             run={run}
-            ttsEnabled={speech.enabled}
             onVoiceControl={handleVoiceControl}
           />
           <CommandConsole log={log} />

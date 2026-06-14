@@ -245,6 +245,97 @@ describe('复杂指令拆解 / 容错', () => {
   });
 });
 
+describe('移动到绝对方位 / 箭头朝向（修复歧义）', () => {
+  it('把它移到左上角 → move 带 position，而非小幅向左', () => {
+    const c = first('把它移到左上角') as { op: string; position?: string; direction?: string };
+    expect(c.op).toBe('move');
+    expect(c.position).toBe('top-left');
+    expect(c.direction).toBeUndefined();
+  });
+
+  it('移到画布中间 → move position center', () => {
+    const c = first('移到画布中间') as { op: string; position?: string };
+    expect(c.op).toBe('move');
+    expect(c.position).toBe('center');
+  });
+
+  it('向右移动100像素 仍是相对位移（不被绝对定位截胡）', () => {
+    const c = first('向右移动100像素');
+    expect(c).toMatchObject({ op: 'move', direction: 'right', distance: 100 });
+    expect((c as { position?: string }).position).toBeUndefined();
+  });
+
+  it('画一个向上的箭头 → create arrow + direction up（不再误判为移动）', () => {
+    const c = first('画一个向上的箭头') as { op: string; shape?: string; props?: { direction?: string } };
+    expect(c.op).toBe('create');
+    expect(c.shape).toBe('arrow');
+    expect(c.props?.direction).toBe('up');
+  });
+
+  it('画一条向左的箭头 → arrow direction left', () => {
+    const c = first('画一个向左的箭头') as { op: string; props?: { direction?: string } };
+    expect(c.op).toBe('create');
+    expect(c.props?.direction).toBe('left');
+  });
+});
+
+describe('画布背景', () => {
+  it('把背景改成蓝色 → background color', () => {
+    const c = first('把背景改成蓝色') as { op: string; mode: string; color?: string };
+    expect(c.op).toBe('background');
+    expect(c.mode).toBe('color');
+    expect(resolveColor(c.color)).toBe('#2f7be2');
+  });
+
+  it('把背景改成山林 → background image，提取提示词', () => {
+    const c = first('把背景改成山林') as { op: string; mode: string; prompt?: string };
+    expect(c.op).toBe('background');
+    expect(c.mode).toBe('image');
+    expect(c.prompt).toBe('山林');
+  });
+
+  it('背景换成森林 → background image 森林', () => {
+    const c = first('背景换成森林') as { op: string; mode: string; prompt?: string };
+    expect(c.mode).toBe('image');
+    expect(c.prompt).toBe('森林');
+  });
+
+  it('去掉背景 / 清除背景 → background clear（不误清空画布）', () => {
+    expect(first('去掉背景')).toEqual({ op: 'background', mode: 'clear' });
+    expect(first('清除背景')).toEqual({ op: 'background', mode: 'clear' });
+  });
+});
+
+describe('多画布', () => {
+  it('新建画布 → newPage（不被“画”误判为创建）', () => {
+    expect(first('新建画布')).toEqual({ op: 'newPage' });
+    expect(first('新画布')).toEqual({ op: 'newPage' });
+  });
+
+  it('切换到第二张画布 → switchPage index 2', () => {
+    expect(first('切换到第二张画布')).toEqual({ op: 'switchPage', index: 2 });
+  });
+
+  it('识别变体也能切换：缺“到”/阿拉伯数字/无动词', () => {
+    expect(first('切换第二张画布')).toEqual({ op: 'switchPage', index: 2 });
+    expect(first('切到第3张画布')).toEqual({ op: 'switchPage', index: 3 });
+    expect(first('第二张画布')).toEqual({ op: 'switchPage', index: 2 });
+    expect(first('切换到第二个')).toEqual({ op: 'switchPage', index: 2 });
+  });
+
+  it('“选中第二个圆”不被误判为切换画布', () => {
+    const c = first('选中第二个圆');
+    expect(c.op).toBe('select');
+  });
+
+  it('下一张 / 上一张 → switchPage delta', () => {
+    expect(first('下一张画布')).toEqual({ op: 'switchPage', delta: 1 });
+    expect(first('上一张画布')).toEqual({ op: 'switchPage', delta: -1 });
+    expect(first('下一张')).toEqual({ op: 'switchPage', delta: 1 });
+    expect(first('切到下一页')).toEqual({ op: 'switchPage', delta: 1 });
+  });
+});
+
 describe('AI 文生图回归', () => {
   it('熊猫不命中小猫预设，改走 imagine', () => {
     expect(first('画一只熊猫')).toMatchObject({ op: 'imagine', prompt: '熊猫' });

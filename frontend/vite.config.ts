@@ -14,6 +14,10 @@ export default defineConfig({
       '@shared': fileURLToPath(new URL('../shared', import.meta.url)),
     },
   },
+  // transformers.js 体积大且自带 wasm，按需动态加载，跳过预打包避免 esbuild 卡顿。
+  optimizeDeps: {
+    exclude: ['@huggingface/transformers'],
+  },
   server: {
     port: 5173,
     // 允许从项目根读取 ../shared 下的共享类型

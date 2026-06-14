@@ -11,3 +11,12 @@ coverage/
 
 # 误生成的 shared 编译产物
 shared/*.js
+
+# 工具产物
+.codegraph/
+.reasonix/
+
+# 本地抠图：RMBG 模型与 ONNX runtime wasm（体积大，按需用脚本下载/复制）
+# 运行 `npm run fetch-models`（backend）重新获取
+frontend/public/models/
+frontend/public/ort/

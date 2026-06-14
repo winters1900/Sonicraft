@@ -2,6 +2,11 @@
 
 纯语音控制的 Canvas 绘图工具。目标：首次授权麦克风后，用户通过语音完成绘图、调整、撤销、保存、帮助开关与反馈开关。
 
+## 演示视频
+
+- B 站：<https://www.bilibili.com/video/BV1wzJK6zEhS/>
+- 备用（南大网盘）：<https://box.nju.edu.cn/f/f2dd1295f0994e45aac4/>
+
 ## 当前架构
 
 - **ASR**：默认浏览器内 Whisper（`@huggingface/transformers` + `Xenova/whisper-small`），无需后端密钥；Web Speech 可手动切换兜底。
@@ -43,7 +48,7 @@ RATE_LIMIT_WINDOW_MS=60000
 | 组合绘图 | 画一个笑脸 / 画一座房子 / 画一棵树 / 画一只小猫 |
 | 编辑变换 | 把它变成绿色 / 放大一点 / 向右移动100像素 / 旋转45度 |
 | 管理 | 撤销 / 重做 / 清空画布 / 保存图片 |
-| 应用控制 | 开始聆听 / 停止聆听 / 切到 Whisper 识别 / 切到浏览器识别 / 打开帮助 / 关闭反馈 |
+| 应用控制 | 开始聆听 / 停止聆听 / 打开帮助 / 关闭帮助 |
 
 ## 测试
 
